@@ -1,0 +1,8 @@
+.build/
+build/
+*.xcodeproj/xcuserdata/
+.swiftpm/
+.DS_Store
+.env
+*.p12
+*.pem
