@@ -46,6 +46,17 @@ private let repo = RepoRef(fullName: "octo/app")!
     }
 }
 
+@Suite struct AppVersionTests {
+    @Test func readsTheStampedVersion() {
+        #expect(AppVersion.text(["CFBundleShortVersionString": "0.2.2", "CFBundleVersion": "17"]) == "v0.2.2 (17)")
+        #expect(AppVersion.text(["CFBundleShortVersionString": "0.2.2", "CFBundleVersion": "0.2.2"]) == "v0.2.2")
+        #expect(AppVersion.text(["CFBundleShortVersionString": "0.2.2"]) == "v0.2.2")
+        #expect(AppVersion.text(["CFBundleShortVersionString": ""]) == "dev build")
+        #expect(AppVersion.text([:]) == "dev build")
+        #expect(!AppVersion.current.isEmpty)
+    }
+}
+
 @MainActor
 @Suite struct GlyphAndIconTests {
     @Test func statusIconSymbols() {

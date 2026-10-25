@@ -109,9 +109,10 @@ private let validToken = "ghp_" + String(repeating: "c", count: 36)
         #expect(!sleeper.requested.contains(.seconds(99)))
     }
 
-    @Test func liveStoreUsesTheGivenKeychainServiceAndRealSleep() async {
+    @Test func liveStoreUsesTheGivenTokenStoreAndRealSleep() async {
+        let url = FileManager.default.temporaryDirectory.appending(path: "pitwall-live-\(UUID().uuidString)/token")
         let store = RunStore(settings: AppSettings(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                             keychainService: "dev.pitwall.tests.\(UUID().uuidString)")
+                             tokens: FileTokenStore(url: url))
         #expect(store.authState == .signedOut)
         let start = ContinuousClock.now
         await store.sleep(seconds: 0.02)

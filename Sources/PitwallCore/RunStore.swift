@@ -101,9 +101,8 @@ public final class RunStore {
         syncRepoList()
     }
 
-    /// The real thing: Keychain token, live GitHub API.
-    public convenience init(settings: AppSettings, keychainService: String = TokenStore.defaultService) {
-        let tokens = TokenStore(service: keychainService)
+    /// The real thing: token file, live GitHub API.
+    public convenience init(settings: AppSettings, tokens: any TokenStoring = FileTokenStore.standard()) {
         self.init(settings: settings, tokens: tokens, api: GitHubClient(tokenProvider: { [tokens] in tokens.token() }))
     }
 

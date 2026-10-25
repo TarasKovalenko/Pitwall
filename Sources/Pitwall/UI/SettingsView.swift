@@ -55,7 +55,7 @@ struct AccountSettings: View {
                     Text("""
                     Fine-grained token: Actions read & write, Contents read, Metadata read. \
                     Classic token: `repo` and `workflow` scopes. \
-                    The token is kept in your login Keychain and only sent to api.github.com.
+                    The token is kept in a file only you can read and is only sent to api.github.com.
                     """)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -213,6 +213,9 @@ struct GeneralSettings: View {
                 if let loginError {
                     Text(loginError).foregroundStyle(.red).font(.caption)
                 }
+            }
+            Section {
+                LabeledContent("Version", value: AppVersion.current)
             }
         }
         .formStyle(.grouped)
