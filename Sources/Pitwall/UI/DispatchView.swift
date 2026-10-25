@@ -43,13 +43,21 @@ struct DispatchView: View {
         .task(id: SpecKey(workflowID: form.workflowID, ref: form.selectedRef)) { await loadSpec() }
     }
 
+    /// Fields scroll; the Run / Cancel row stays put at the bottom.
     @ViewBuilder
     private func form(_ options: DispatchOptions) -> some View {
-        Picker("Workflow", selection: $form.workflowID) {
-            ForEach(options.workflows) { Text($0.name).tag(Optional($0.id)) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Workflow", selection: $form.workflowID) {
+                    ForEach(options.workflows) { Text($0.name).tag(Optional($0.id)) }
+                }
+                refPicker(options)
+                inputsSection
+            }
+            .padding(.trailing, 12)
         }
-        refPicker(options)
-        inputsSection
+        .scrollIndicators(.visible)
+        .scrollBounceBehavior(.basedOnSize)
         HStack {
             if let blocking = form.blockingProblem {
                 Text(blocking).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
@@ -135,12 +143,9 @@ struct DispatchView: View {
             if spec.inputs.isEmpty {
                 Text("No inputs.").font(.caption).foregroundStyle(.secondary)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(spec.inputs) { input in InputField(input: input, value: binding(for: input)) }
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(spec.inputs) { input in InputField(input: input, value: binding(for: input)) }
                 }
-                .frame(maxHeight: 200)
             }
         case .unreadable(let reason):
             VStack(alignment: .leading, spacing: 4) {

@@ -35,6 +35,12 @@ final class Rendered<V: View> {
         for _ in 0..<20 { try? await Task.sleep(for: .milliseconds(5)); layout() }
     }
 
+    /// Keeps settling until `done`, for loads that run slower when the whole suite is busy.
+    func settle(until done: () async -> Bool) async {
+        for _ in 0..<50 where !(await done()) { await settle() }
+        await settle()
+    }
+
     var fittingHeight: CGFloat { host.fittingSize.height }
 
     deinit { MainActor.assumeIsolated { window.orderOut(nil) } }
@@ -147,7 +153,7 @@ final class Rendered<V: View> {
         """, path: workflow.path, ref: "main")
         let store = makeStore()
         let r = Rendered(DispatchView(store: store, repo: repo, close: {}))
-        await r.settle()
+        await r.settle { await !api.fileRequests.isEmpty }
         #expect(await api.fileRequests == ["\(workflow.path)@main"])
         #expect(r.fittingHeight > 150)
     }
@@ -156,7 +162,7 @@ final class Rendered<V: View> {
         let workflow = makeWorkflow(id: 1)
         await api.set(workflows: [workflow], branches: [Branch(name: "main")])
         let r = Rendered(DispatchView(store: makeStore(), repo: repo, close: {}))
-        await r.settle()
+        await r.settle { await !api.fileRequests.isEmpty }
         #expect(await api.fileRequests.count == 1)
         #expect(r.fittingHeight > 0)
     }
