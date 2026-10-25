@@ -124,3 +124,33 @@ private let validToken = "ghp_" + String(repeating: "c", count: 36)
         #expect(!AuthState.tokenProblem("x").hasUsableToken)
     }
 }
+
+@MainActor
+@Suite struct RunStoreRestartTests {
+    @Test func restartingDuringARefreshStillPollsAgain() async {
+        let api = FakeGitHub()
+        let sleeper = ManualSleeper()
+        let settings = AppSettings(defaults: UserDefaults(suiteName: "pitwall-restart-\(UUID().uuidString)")!)
+        settings.trackedRepos = [RepoRef(fullName: "o/r")!]
+        let store = RunStore(settings: settings, tokens: MemoryTokens("ghp_" + String(repeating: "c", count: 36)),
+                             api: api, sleep: sleeper.sleep)
+        // Every fetch takes a while, like a slow network.
+        await api.set(onRuns: { try? await Task.sleep(for: .milliseconds(100)) })
+        store.start()
+        let inFlight = await eventually { store.isRefreshing }
+        #expect(inFlight)
+
+        // Sleep and wake while that first refresh is still going.
+        store.stop()
+        store.start()
+
+        // A fresh poll must follow, not a full idle wait.
+        var polledAgain = false
+        for _ in 0..<200 where !polledAgain {
+            polledAgain = await api.runsCalls >= 2
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(polledAgain)
+        store.stop()
+    }
+}

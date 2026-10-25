@@ -78,6 +78,10 @@ public final class RunStore {
     /// Bumped on sign-in and sign-out. Responses from an older epoch belong
     /// to the previous account and are dropped.
     @ObservationIgnored private var authEpoch = 0
+    /// The refresh currently running, so overlapping calls can wait for it.
+    @ObservationIgnored private var inFlight: Task<Void, Never>?
+    /// Someone called `refresh` while one was running: do one more pass.
+    @ObservationIgnored private var refreshAgain = false
     private let maxConcurrentRequests = 4
     private let maxProgressFetches = 6
 
@@ -245,10 +249,33 @@ public final class RunStore {
 
     // MARK: Refresh
 
+    /// Polls GitHub now. If a refresh is already running, waits for it and
+    /// one more pass, so the caller always gets data fetched after the call.
+    /// (Restarting the loop on wake mid-refresh used to skip the first poll
+    /// and then wait a full interval.)
     public func refresh() async {
-        guard !isRefreshing, hasToken else { return }
+        if let running = inFlight {
+            refreshAgain = true
+            await running.value
+            return
+        }
+        guard hasToken else { return }
+        let task = Task { [weak self] in
+            while let self {
+                self.refreshAgain = false
+                await self.refreshOnce()
+                if !self.refreshAgain { break }
+            }
+        }
+        inFlight = task
         isRefreshing = true
-        defer { isRefreshing = false }
+        await task.value
+        inFlight = nil
+        isRefreshing = false
+    }
+
+    private func refreshOnce() async {
+        guard hasToken else { return }
         let epoch = authEpoch
 
         // Picks up any change to `settings.trackedRepos` made elsewhere.
