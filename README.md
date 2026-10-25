@@ -14,6 +14,24 @@ You can also start workflows from the menu (`workflow_dispatch`, with branch and
 
 Works on Macs without a notch too. You get a small pill at the top of the screen instead.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TarasKovalenko/Pitwall/main/scripts/install.sh | bash
+```
+
+This downloads the latest release, checks its SHA-256, installs it into `/Applications` (or `~/Applications` if that isn't writable) and opens it. Run the same command again to update. Set `PITWALL_VERSION=v0.2.0` to install a specific version, or `PITWALL_DIR=...` to choose the folder.
+
+Release builds are ad-hoc signed, not notarized, so the script clears the quarantine flag. If you download `Pitwall.zip` by hand from the Releases page, right-click the app and choose Open the first time.
+
+## Releasing
+
+Push a version tag. The `Release` workflow runs the tests, builds the app with that version stamped into `Info.plist`, and publishes `Pitwall.zip` and its checksum as a GitHub release.
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
 ## Build and run
 
 In Xcode, open `App/Pitwall.xcodeproj` (not `Package.swift`), pick the Pitwall scheme and press ⌘R. It builds a real `.app` bundle, which notifications need.
@@ -70,6 +88,8 @@ Sources/PitwallCore/   API client, models, validation, polling, Keychain (no UI,
 Sources/Pitwall/       SwiftUI + AppKit app: menu bar, settings, notch panel, notifications
 Tests/                   Swift Testing suites for validation, polling and transitions
 scripts/build-app.sh     builds and signs the .app bundle
+scripts/install.sh       installs the latest release (used by the curl one-liner)
+.github/workflows/       release workflow, triggered by v* tags
 scripts/make-icon.sh     redraws the app icon (scripts/make-icon.swift) into the asset catalog and .icns
 ```
 
