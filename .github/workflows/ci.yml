@@ -21,7 +21,7 @@ jobs:
         run: |
           set -o pipefail
           # The test bundle's path depends on the SwiftPM build system in use.
-          BINS=$(find .build -type f -path "*ebug*/*.xctest/Contents/MacOS/*")
+          BINS=$(find .build -type f -path "*ebug*/*.xctest/Contents/MacOS/*" -not -path "*.dSYM*")
           test -n "$BINS" || { echo "No test binaries found"; exit 1; }
           FIRST=$(echo "$BINS" | head -1)
           OTHERS=$(echo "$BINS" | tail -n +2 | sed 's/^/-object /')
