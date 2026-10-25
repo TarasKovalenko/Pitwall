@@ -44,7 +44,7 @@ public struct RunTransitionTracker: Sendable {
 
     public init() {}
 
-    public mutating func ingest(repo: RepoRef, runs: [WorkflowRun]) -> [RunEvent] {
+    public mutating func ingest(repo: RepoRef, runs: [WorkflowRun], now: Date = Date()) -> [RunEvent] {
         let seeded = seededRepos.contains(repo)
         seededRepos.insert(repo)
         var events: [RunEvent] = []
@@ -58,7 +58,7 @@ public struct RunTransitionTracker: Sendable {
                 events.append(.started(tracked))
             case (let before?, .completed) where before.isActive:
                 events.append(.finished(tracked))
-            case (nil, .completed) where Date().timeIntervalSince(run.updatedAt) < 300:
+            case (nil, .completed) where now.timeIntervalSince(run.updatedAt) < 300:
                 // Started and finished between two polls.
                 events.append(.finished(tracked))
             default:
@@ -74,5 +74,46 @@ public struct RunTransitionTracker: Sendable {
 
     public mutating func forget(repo: RepoRef) {
         seededRepos.remove(repo)
+    }
+}
+
+/// Runs that just finished, shown briefly in the notch. Newest first,
+/// capped, and each entry expires after `lifetime`.
+public struct RecentlyFinished: Sendable, Equatable {
+    public private(set) var runs: [TrackedRun] = []
+    private var finishedAt: [Int: Date] = [:]
+    public let capacity: Int
+    public let lifetime: TimeInterval
+
+    public init(capacity: Int = 5, lifetime: TimeInterval = 12) {
+        self.capacity = capacity
+        self.lifetime = lifetime
+    }
+
+    public mutating func add(_ run: TrackedRun, now: Date) {
+        runs.removeAll { $0.id == run.id }
+        runs.insert(run, at: 0)
+        finishedAt[run.id] = now
+        for dropped in runs.dropFirst(capacity) { finishedAt[dropped.id] = nil }
+        runs = Array(runs.prefix(capacity))
+    }
+
+    /// Drops expired entries.
+    public mutating func expire(now: Date) {
+        runs.removeAll { run in
+            guard let at = finishedAt[run.id], now.timeIntervalSince(at) >= lifetime else { return false }
+            finishedAt[run.id] = nil
+            return true
+        }
+    }
+
+    /// When the oldest entry expires, so the owner can wake up once for it.
+    public var nextExpiry: Date? {
+        finishedAt.values.min().map { $0.addingTimeInterval(lifetime) }
+    }
+
+    public mutating func removeAll() {
+        runs = []
+        finishedAt = [:]
     }
 }

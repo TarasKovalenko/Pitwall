@@ -16,39 +16,104 @@ public enum OverallStatus: Sendable, Equatable {
     case signedOut, idle, running(Int), failing, error
 }
 
+/// Where the account stands. The one place that decides "signed in".
+public enum AuthState: Sendable, Equatable {
+    /// No token saved.
+    case signedOut
+    /// GitHub rejected the token.
+    case tokenProblem(String)
+    /// Token saved, user not loaded yet (first launch, or offline).
+    case connecting
+    case signedIn(GitHubUser)
+
+    /// A token is saved and GitHub hasn't rejected it.
+    public var hasUsableToken: Bool {
+        switch self {
+        case .connecting, .signedIn: true
+        case .signedOut, .tokenProblem: false
+        }
+    }
+
+    public var user: GitHubUser? {
+        if case .signedIn(let user) = self { return user }
+        return nil
+    }
+}
+
+/// Waits for a duration. Injected so tests don't sleep for real.
+public typealias Sleeper = @Sendable (Duration) async throws -> Void
+
+/// Polls GitHub for the tracked repositories and is the only thing the UI
+/// talks to: auth, repo tracking, run actions and dispatch all go through here.
 @MainActor
 @Observable
 public final class RunStore {
     public private(set) var repos: [RepoState] = []
     public private(set) var progress: [Int: RunProgress] = [:]
-    public private(set) var user: GitHubUser?
-    public private(set) var authError: String?
     public private(set) var rateLimit: RateLimit?
     public private(set) var isRefreshing = false
-    /// Runs that finished in the last few seconds, shown briefly in the notch.
-    public private(set) var recentlyFinished: [TrackedRun] = []
 
     public let settings: AppSettings
-    public let tokens: TokenStore
-    public let client: GitHubClient
 
     /// Hook for the app layer (notifications live outside Core).
     @ObservationIgnored public var onEvent: (@MainActor (RunEvent) -> Void)?
 
+    private var user: GitHubUser?
+    private var authError: String?
+    /// Mirrors whether the token store has a token, so views observe changes.
+    private var hasToken: Bool
+    private var finished = RecentlyFinished()
+
+    @ObservationIgnored private let tokens: any TokenStoring
+    @ObservationIgnored private let api: any GitHubAPI
+    @ObservationIgnored private let sleepFor: Sleeper
+    @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var tracker = RunTransitionTracker()
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var sleeper: Task<Void, Never>?
+    @ObservationIgnored private var expiry: Task<Void, Never>?
+    /// Set by `pokeSoon`, cleared when a wait is skipped or cut short. Sticky,
+    /// so a poke that arrives mid-refresh still shortens the next wait.
+    @ObservationIgnored private var wakeRequested = false
+    /// Bumped on sign-in and sign-out. Responses from an older epoch belong
+    /// to the previous account and are dropped.
+    @ObservationIgnored private var authEpoch = 0
     private let maxConcurrentRequests = 4
     private let maxProgressFetches = 6
 
-    public init(settings: AppSettings, tokens: TokenStore = TokenStore()) {
+    public init(
+        settings: AppSettings,
+        tokens: any TokenStoring,
+        api: any GitHubAPI,
+        sleep: @escaping Sleeper = { try await Task.sleep(for: $0) },
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.settings = settings
         self.tokens = tokens
-        self.client = GitHubClient(tokenProvider: { [tokens] in tokens.token() })
+        self.api = api
+        self.sleepFor = sleep
+        self.now = now
+        hasToken = tokens.token() != nil
         syncRepoList()
     }
 
+    /// The real thing: Keychain token, live GitHub API.
+    public convenience init(settings: AppSettings) {
+        let tokens = TokenStore()
+        self.init(settings: settings, tokens: tokens, api: GitHubClient(tokenProvider: { [tokens] in tokens.token() }))
+    }
+
     // MARK: Derived
+
+    public var authState: AuthState {
+        if !hasToken { return .signedOut }
+        if let authError { return .tokenProblem(authError) }
+        if let user { return .signedIn(user) }
+        return .connecting
+    }
+
+    /// Runs that finished in the last few seconds, shown briefly in the notch.
+    public var recentlyFinished: [TrackedRun] { finished.runs }
 
     public var activeRuns: [TrackedRun] {
         repos.flatMap { state in state.activeRuns.map { TrackedRun(repo: state.ref, run: $0) } }
@@ -56,7 +121,7 @@ public final class RunStore {
     }
 
     public var overallStatus: OverallStatus {
-        if tokens.token() == nil || authError != nil { return .signedOut }
+        guard authState.hasUsableToken else { return .signedOut }
         let active = repos.reduce(0) { $0 + $1.activeRuns.count }
         if active > 0 { return .running(active) }
         if repos.contains(where: { $0.latestRun?.conclusion?.isFailure == true }) { return .failing }
@@ -72,9 +137,7 @@ public final class RunStore {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.refresh()
-                let delay = self.settings.pollPolicy.nextDelay(
-                    hasActiveRuns: !self.activeRuns.isEmpty, rateLimit: self.rateLimit)
-                await self.sleep(seconds: delay)
+                await self.waitForNextCycle()
             }
         }
     }
@@ -82,83 +145,124 @@ public final class RunStore {
     public func stop() {
         loop?.cancel()
         loop = nil
-        wakeUp()
+        sleeper?.cancel()
     }
 
-    /// Cut the current wait short, e.g. after the user dispatches a run.
+    /// Cut the current (or next) wait short, e.g. after the user dispatches a run.
     public func pokeSoon() {
-        wakeUp()
+        wakeRequested = true
+        sleeper?.cancel()
     }
 
-    private func sleep(seconds: TimeInterval) async {
-        let sleeper = Task<Void, Never> { _ = try? await Task.sleep(for: .seconds(seconds)) }
+    func waitForNextCycle() async {
+        let delay = settings.pollPolicy.nextDelay(hasActiveRuns: !activeRuns.isEmpty, rateLimit: rateLimit, now: now())
+        await sleep(seconds: delay)
+    }
+
+    func sleep(seconds: TimeInterval) async {
+        if wakeRequested {
+            wakeRequested = false
+            return
+        }
+        let sleepFor = self.sleepFor
+        let sleeper = Task<Void, Never> { _ = try? await sleepFor(.seconds(seconds)) }
         self.sleeper = sleeper
         await sleeper.value
         self.sleeper = nil
-    }
-
-    private func wakeUp() {
-        sleeper?.cancel()
+        wakeRequested = false
     }
 
     // MARK: Auth
 
     public func signIn(token: String) async throws {
         try tokens.save(token)
-        await client.clearCache()
-        authError = nil
+        resetAccountState()
+        hasToken = true
+        await api.clearCache()
         try await loadUser()
         pokeSoon()
     }
 
     public func signOut() async {
         tokens.delete()
-        await client.clearCache()
+        resetAccountState()
+        hasToken = false
+        await api.clearCache()
+    }
+
+    private func resetAccountState() {
+        authEpoch += 1
         user = nil
         authError = nil
+        rateLimit = nil
         progress = [:]
         repos = repos.map { RepoState(ref: $0.ref) }
+        finished.removeAll()
+        // A new account seeds fresh, so it doesn't notify about old runs.
+        tracker = RunTransitionTracker()
     }
 
     private func loadUser() async throws {
+        let epoch = authEpoch
         do {
-            user = try await client.currentUser()
+            let loaded = try await api.currentUser()
+            guard epoch == authEpoch else { return }
+            user = loaded
         } catch {
-            if case GitHubError.unauthorized = error { authError = error.localizedDescription }
+            if epoch == authEpoch, case GitHubError.unauthorized = error { authError = error.localizedDescription }
             throw error
         }
     }
 
     // MARK: Repos
 
-    /// Call after `settings.trackedRepos` changes.
-    public func syncRepoList() {
+    public func track(_ ref: RepoRef) {
+        settings.track(ref)
+        syncRepoList()
+        pokeSoon()
+    }
+
+    public func untrack(_ ref: RepoRef) {
+        settings.untrack(ref)
+        syncRepoList()
+    }
+
+    /// Repositories the signed-in user can pick from.
+    public func availableRepositories() async throws -> [Repository] {
+        try await api.repositories()
+    }
+
+    private func syncRepoList() {
         let wanted = settings.trackedRepos
         let existing = Dictionary(uniqueKeysWithValues: repos.map { ($0.ref, $0) })
         for gone in existing.keys where !wanted.contains(gone) { tracker.forget(repo: gone) }
-        repos = wanted.map { existing[$0] ?? RepoState(ref: $0) }
+        let next = wanted.map { existing[$0] ?? RepoState(ref: $0) }
+        if next != repos { repos = next }
     }
 
     // MARK: Refresh
 
     public func refresh() async {
-        guard !isRefreshing, tokens.token() != nil else { return }
+        guard !isRefreshing, hasToken else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+        let epoch = authEpoch
 
+        // Picks up any change to `settings.trackedRepos` made elsewhere.
+        syncRepoList()
         if user == nil {
             do { try await loadUser() } catch { return }
         }
 
-        let refs = repos.map(\.ref)
-        let results = await fetchRuns(refs)
+        let results = await fetchRuns(repos.map(\.ref))
+        guard epoch == authEpoch else { return }
         var events: [RunEvent] = []
-        let now = Date()
+        let now = now()
         for (ref, result) in results {
             guard let index = repos.firstIndex(where: { $0.ref == ref }) else { continue }
             switch result {
             case .success(let runs):
-                events += tracker.ingest(repo: ref, runs: runs)
+                events += tracker.ingest(repo: ref, runs: runs, now: now)
                 if repos[index].runs != runs { repos[index].runs = runs }
                 repos[index].error = nil
                 repos[index].lastUpdated = now
@@ -168,16 +272,23 @@ public final class RunStore {
             }
         }
 
-        await refreshProgress()
-        rateLimit = await client.rateLimit
+        let active = Array(activeRuns.prefix(maxProgressFetches))
+        let fetched = await fetchProgress(active)
+        let limit = await api.rateLimit
+        guard epoch == authEpoch else { return }
+        let keep = Set(active.map(\.run.id))
+        var next = progress.filter { keep.contains($0.key) }
+        next.merge(fetched) { _, new in new }
+        if next != progress { progress = next }
+        if limit != rateLimit { rateLimit = limit }
         handle(events)
     }
 
     private func fetchRuns(_ refs: [RepoRef]) async -> [(RepoRef, Result<[WorkflowRun], Error>)] {
-        let client = self.client
+        let api = self.api
         let limit = maxConcurrentRequests
         @Sendable func fetch(_ ref: RepoRef) async -> (RepoRef, Result<[WorkflowRun], Error>) {
-            do { return (ref, .success(try await client.runs(for: ref))) }
+            do { return (ref, .success(try await api.runs(for: ref))) }
             catch { return (ref, .failure(error)) }
         }
         // Sliding window: start `limit` fetches, then one more each time one
@@ -203,13 +314,12 @@ public final class RunStore {
     }
 
     /// Jobs are only fetched for runs that are still going, newest first.
-    private func refreshProgress() async {
-        let active = Array(activeRuns.prefix(maxProgressFetches))
-        let client = self.client
-        let fetched = await withTaskGroup(of: (Int, RunProgress?).self) { group in
+    private func fetchProgress(_ active: [TrackedRun]) async -> [Int: RunProgress] {
+        let api = self.api
+        return await withTaskGroup(of: (Int, RunProgress?).self) { group in
             for item in active {
                 group.addTask {
-                    let jobs = try? await client.jobs(for: item.repo, runID: item.run.id)
+                    let jobs = try? await api.jobs(for: item.repo, runID: item.run.id)
                     return (item.run.id, jobs.map(RunProgress.init(jobs:)))
                 }
             }
@@ -217,44 +327,60 @@ public final class RunStore {
             for await (id, p) in group { if let p { out[id] = p } }
             return out
         }
-        let keep = Set(active.map(\.run.id))
-        var next = progress.filter { keep.contains($0.key) }
-        next.merge(fetched) { _, new in new }
-        if next != progress { progress = next }
     }
 
     private func handle(_ events: [RunEvent]) {
+        var added = false
         for event in events {
             if case .finished(let run) = event {
-                recentlyFinished.insert(run, at: 0)
-                recentlyFinished = Array(recentlyFinished.prefix(5))
-                let id = run.id
-                Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(12))
-                    self?.recentlyFinished.removeAll { $0.id == id }
-                }
+                finished.add(run, now: now())
+                added = true
             }
             onEvent?(event)
+        }
+        if added { scheduleExpiry() }
+    }
+
+    /// One timer for the oldest finished run, re-armed after each expiry.
+    private func scheduleExpiry() {
+        expiry?.cancel()
+        guard let due = finished.nextExpiry else { return }
+        let delay = max(due.timeIntervalSince(now()), 0)
+        let sleepFor = self.sleepFor
+        expiry = Task { [weak self] in
+            do { try await sleepFor(.seconds(delay)) } catch { return }
+            guard let self else { return }
+            // We slept until `due`, so treat it as reached even if the clock lags.
+            self.finished.expire(now: max(self.now(), due))
+            self.scheduleExpiry()
         }
     }
 
     // MARK: Actions
 
-    public func rerun(_ run: TrackedRun, failedOnly: Bool) async throws {
-        try await client.rerun(repo: run.repo, runID: run.run.id, failedOnly: failedOnly)
+    public func perform(_ action: RunAction, on run: TrackedRun) async throws {
+        switch action {
+        case .cancel:
+            try await api.cancel(repo: run.repo, runID: run.run.id)
+        case .rerun(let failedOnly):
+            try await api.rerun(repo: run.repo, runID: run.run.id, failedOnly: failedOnly)
+        }
         pokeSoon()
     }
 
-    public func cancel(_ run: TrackedRun) async throws {
-        try await client.cancel(repo: run.repo, runID: run.run.id)
-        pokeSoon()
+    public func dispatchOptions(for repo: RepoRef) async throws -> DispatchOptions {
+        let api = self.api
+        async let workflows = api.workflows(for: repo)
+        async let branches = api.branches(for: repo)
+        return try await DispatchOptions(workflows: workflows, branches: branches.map(\.name))
     }
 
     public func dispatch(repo: RepoRef, workflow: Workflow, ref: String, inputs: [String: String]) async throws {
-        try await client.dispatch(repo: repo, workflowID: workflow.id, ref: ref, inputs: inputs)
+        try await api.dispatch(repo: repo, workflowID: workflow.id, ref: ref, inputs: inputs)
         // The new run shows up in the API a moment later.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+        let sleepFor = self.sleepFor
+        Task { [weak self] in
+            try? await sleepFor(.seconds(3))
             self?.pokeSoon()
         }
     }

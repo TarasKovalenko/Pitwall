@@ -94,12 +94,11 @@ struct DispatchView: View {
     private func load() async {
         defer { loading = false }
         do {
-            async let wf = store.client.workflows(for: repo)
-            async let br = store.client.branches(for: repo)
-            workflows = try await wf.filter(\.isActive)
-            branches = try await br.map(\.name)
+            let options = try await store.dispatchOptions(for: repo)
+            workflows = options.workflows
+            branches = options.branches
             workflowID = workflows.first?.id
-            ref = ["main", "master", "develop"].first(where: branches.contains) ?? branches.first ?? ""
+            ref = options.suggestedBranch ?? ""
             if workflows.isEmpty { message = ("No active workflows in this repository.", true) }
         } catch {
             message = (error.localizedDescription, true)

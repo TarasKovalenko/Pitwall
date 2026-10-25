@@ -37,6 +37,10 @@ public final class AppSettings {
         PollPolicy(activeInterval: activeInterval, idleInterval: idleInterval)
     }
 
+    public var notificationPreferences: NotificationPreferences {
+        NotificationPreferences(onStart: notifyOnStart, onSuccess: notifyOnSuccess, onFailure: notifyOnFailure)
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let names = defaults.stringArray(forKey: "trackedRepos") ?? []

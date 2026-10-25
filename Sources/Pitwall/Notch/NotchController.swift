@@ -39,7 +39,7 @@ final class NotchController {
     }
 
     private var shouldShow: Bool {
-        guard settings.notchEnabled, store.user != nil else { return false }
+        guard settings.notchEnabled, store.authState.user != nil else { return false }
         return settings.notchAlwaysVisible || !store.activeRuns.isEmpty || !store.recentlyFinished.isEmpty
     }
 

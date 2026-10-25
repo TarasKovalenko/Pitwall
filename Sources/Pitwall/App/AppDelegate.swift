@@ -20,7 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notifier.activate()
         store.onEvent = { [weak self] event in
             guard let self else { return }
-            self.notifier.post(event, settings: self.settings)
+            guard let content = NotificationPolicy.content(
+                for: event, preferences: self.settings.notificationPreferences) else { return }
+            self.notifier.post(content)
         }
         notch = NotchController(store: store, settings: settings)
         store.start()

@@ -1,10 +1,17 @@
 import Foundation
 import Security
 
+/// Where the GitHub token lives. `TokenStore` is the Keychain adapter.
+public protocol TokenStoring: AnyObject, Sendable {
+    func token() -> String?
+    func save(_ token: String) throws
+    func delete()
+}
+
 /// Keeps the GitHub token in the login Keychain. The token never touches
 /// UserDefaults, disk, or logs. Reads are cached in memory so the poller
 /// doesn't hit Keychain on every request.
-public final class TokenStore: @unchecked Sendable {
+public final class TokenStore: TokenStoring, @unchecked Sendable {
     private let service: String
     private let account = "github-token"
     private let lock = NSLock()
