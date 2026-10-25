@@ -26,7 +26,8 @@ echo "$PWD" > "$ROOT_MARKER"
 BUILD_ARGS=(-c "$CONFIG")
 for arch in $ARCHS; do BUILD_ARGS+=(--arch "$arch"); done
 
-swift build "${BUILD_ARGS[@]}"
+# Only the app product: the test support target isn't part of a release.
+swift build "${BUILD_ARGS[@]}" --product pitwall-app
 BIN="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)/pitwall-app"
 
 rm -rf "$APP"

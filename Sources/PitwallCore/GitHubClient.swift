@@ -38,6 +38,9 @@ public protocol GitHubAPI: Sendable {
     func jobs(for repo: RepoRef, runID: Int) async throws -> [Job]
     func workflows(for repo: RepoRef) async throws -> [Workflow]
     func branches(for repo: RepoRef) async throws -> [Branch]
+    func tags(for repo: RepoRef) async throws -> [Tag]
+    /// The workflow file at `ref`, as text.
+    func workflowFile(repo: RepoRef, path: String, ref: String) async throws -> String
     func dispatch(repo: RepoRef, workflowID: Int, ref: String, inputs: [String: String]) async throws
     func rerun(repo: RepoRef, runID: Int, failedOnly: Bool) async throws
     func cancel(repo: RepoRef, runID: Int) async throws
@@ -64,17 +67,22 @@ public actor GitHubClient: GitHubAPI {
     // what lets us poll every few seconds while a run is active.
     private var etagCache: [String: (etag: String, body: Data)] = [:]
     private var etagOrder: [String] = []
-    private let etagCapacity = 300
+    private let etagCapacity: Int
     /// Bumped by `clearCache`. A response that started before the bump
     /// belongs to the previous account and must not land in the cache.
     private var cacheGeneration = 0
-    private let maxRepositoryPages = 5
+    private let maxPages = 5
 
     public private(set) var rateLimit: RateLimit?
 
     public init(tokenProvider: @escaping @Sendable () -> String?, transport: any HTTPTransport = URLSessionTransport()) {
+        self.init(tokenProvider: tokenProvider, transport: transport, etagCapacity: 300)
+    }
+
+    init(tokenProvider: @escaping @Sendable () -> String?, transport: any HTTPTransport, etagCapacity: Int) {
         self.transport = transport
         self.tokenProvider = tokenProvider
+        self.etagCapacity = etagCapacity
     }
 
     // MARK: Endpoints
@@ -87,7 +95,7 @@ public actor GitHubClient: GitHubAPI {
     /// five pages so huge org memberships don't stall the settings screen.
     public func repositories() async throws -> [Repository] {
         var all: [Repository] = []
-        for page in 1...maxRepositoryPages {
+        for page in 1...maxPages {
             let batch: [Repository] = try await get(["user", "repos"], query: [
                 .init(name: "per_page", value: "100"),
                 .init(name: "page", value: String(page)),
@@ -125,7 +133,47 @@ public actor GitHubClient: GitHubAPI {
     }
 
     public func branches(for repo: RepoRef) async throws -> [Branch] {
-        try await get(["repos", repo.owner, repo.name, "branches"], query: [.init(name: "per_page", value: "100")])
+        try await pages(["repos", repo.owner, repo.name, "branches"])
+    }
+
+    public func tags(for repo: RepoRef) async throws -> [Tag] {
+        try await pages(["repos", repo.owner, repo.name, "tags"])
+    }
+
+    /// Workflow files only: the path must sit under `.github/workflows/`.
+    public func workflowFile(repo: RepoRef, path: String, ref: String) async throws -> String {
+        let segments = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard segments.count == 3, segments[0] == ".github", segments[1] == "workflows",
+              segments[2].hasSuffix(".yml") || segments[2].hasSuffix(".yaml")
+        else { throw GitHubError.invalidInput("Not a workflow file: \(path)") }
+        guard Validation.isValidRef(ref) else { throw GitHubError.invalidInput("Invalid branch or tag name.") }
+        let file: FileContent = try await get(
+            ["repos", repo.owner, repo.name, "contents"] + segments,
+            query: [.init(name: "ref", value: ref)]
+        )
+        guard file.type == "file", file.size <= MiniYAML.maxBytes else {
+            throw GitHubError.invalidInput("The workflow file is too large to read.")
+        }
+        guard file.encoding == "base64", let content = file.content,
+              let data = Data(base64Encoded: content, options: .ignoreUnknownCharacters),
+              data.count <= MiniYAML.maxBytes,
+              let text = String(data: data, encoding: .utf8)
+        else { throw GitHubError.decoding }
+        return text
+    }
+
+    /// Up to five pages of 100, so repos with many refs don't stall the form.
+    private func pages<T: Decodable>(_ path: [String]) async throws -> [T] {
+        var all: [T] = []
+        for page in 1...maxPages {
+            let batch: [T] = try await get(path, query: [
+                .init(name: "per_page", value: "100"),
+                .init(name: "page", value: String(page)),
+            ])
+            all += batch
+            if batch.count < 100 { break }
+        }
+        return all
     }
 
     public func dispatch(repo: RepoRef, workflowID: Int, ref: String, inputs: [String: String]) async throws {
@@ -218,7 +266,7 @@ public actor GitHubClient: GitHubAPI {
         return request
     }
 
-    private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         // The token only ever goes to the API host, whatever transport is plugged in.
         guard request.url?.scheme == "https", request.url?.host == Self.apiHost else {
             throw GitHubError.invalidInput("Refusing to send the token outside \(Self.apiHost)")

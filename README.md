@@ -4,7 +4,7 @@ GitHub Actions in your Mac's notch.
 
 Pitwall sits in the menu bar next to the clock. Pick the repositories you care about and it shows their latest workflow runs. When something is running, the notch grows two small wings: which repo, and how many jobs are done. Hover over it and you get the live list, with the current job and step for each run. When a run finishes you get a notification, and clicking it opens the run on GitHub.
 
-You can also start workflows from the menu (`workflow_dispatch`, with branch and inputs), re-run failed jobs, and cancel runs without opening a browser.
+You can also start workflows from the menu, re-run failed jobs, and cancel runs without opening a browser. Starting a workflow (`workflow_dispatch`) lets you search branches and tags, and shows the inputs declared in the workflow file as proper fields: text, number, toggles for booleans, a picker for choices, with their defaults.
 
 ## Requirements
 
@@ -41,7 +41,8 @@ From the terminal:
 ```bash
 scripts/build-app.sh          # builds build/Pitwall.app (ad-hoc signed)
 open build/Pitwall.app
-swift test                    # runs the test suite
+swift test                    # runs both test suites
+swift test --enable-code-coverage   # same, with coverage
 ```
 
 Then open Settings from the menu bar icon:
@@ -86,17 +87,18 @@ Measured on an M-series MacBook, signed out and idle: 0.0% CPU, about 18 MB memo
 App/Pitwall.xcodeproj  Xcode app target; compiles Sources/Pitwall, links PitwallCore
 Sources/PitwallCore/   RunStore, API client, models, validation, polling, notification policy, Keychain (no UI)
 Sources/Pitwall/       SwiftUI + AppKit app: menu bar, settings, notch panel, notifications
-Tests/                   Swift Testing suites: RunStore and GitHubClient through in-memory adapters, plus policies
+Tests/PitwallCoreTests/  Core: RunStore and GitHubClient through in-memory adapters, the YAML reader, policies, Keychain
+Tests/PitwallAppTests/   App: view logic, notch and app lifecycle, and every view rendered in its main states
+Tests/Support/           Fakes shared by both: in-memory GitHub, scripted transport, sleepers
 GLOSSARY.md              names used in the code (auth state, run action, poke, …)
 scripts/build-app.sh     builds and signs the .app bundle
 scripts/install.sh       installs the latest release (used by the curl one-liner)
-.github/workflows/       release workflow, triggered by v* tags
+.github/workflows/       CI on every PR and push to main; release on v* tags
 scripts/make-icon.sh     redraws the app icon (scripts/make-icon.swift) into the asset catalog and .icns
 ```
 
 ## Roadmap
 
-- Read `workflow_dispatch` inputs from the workflow file and show proper fields (choice, boolean)
 - GitHub OAuth device flow, so no token copy-paste
 - App Sandbox, once the `gh` import moves to an XPC helper or goes away
 - Per-repo filters: only my runs, only certain branches or workflows

@@ -25,10 +25,12 @@ final class NotchController {
     private var monitors: [Any] = []
     private var collapseWork: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
+    private let geometryProvider: @MainActor () -> NotchGeometry?
 
-    init(store: RunStore, settings: AppSettings) {
+    init(store: RunStore, settings: AppSettings, geometry: @escaping @MainActor () -> NotchGeometry? = NotchGeometry.current) {
         self.store = store
         self.settings = settings
+        self.geometryProvider = geometry
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -38,7 +40,10 @@ final class NotchController {
         update()
     }
 
-    private var shouldShow: Bool {
+    private var shouldShow: Bool { Self.shouldShow(settings: settings, store: store) }
+
+    /// Visible when enabled, signed in, and there's something to show (or it's pinned).
+    static func shouldShow(settings: AppSettings, store: RunStore) -> Bool {
         guard settings.notchEnabled, store.authState.user != nil else { return false }
         return settings.notchAlwaysVisible || !store.activeRuns.isEmpty || !store.recentlyFinished.isEmpty
     }
@@ -75,8 +80,13 @@ final class NotchController {
         removeMonitors()
     }
 
+    /// For tests: whether the panel is on screen, and expanded.
+    var isShowing: Bool { panel?.isVisible == true }
+    var isExpanded: Bool { model?.isExpanded == true }
+    var geometry: NotchGeometry? { model?.geometry }
+
     private func makePanel() {
-        guard let geometry = NotchGeometry.current() else { return }
+        guard let geometry = geometryProvider() else { return }
         let model = NotchModel(geometry: geometry)
         let panel = NotchPanel(contentRect: geometry.panelFrame)
         let root = NotchView(model: model).environment(store)
@@ -87,8 +97,8 @@ final class NotchController {
         self.panel = panel
     }
 
-    private func relayout() {
-        guard let geometry = NotchGeometry.current(), let panel, let model else { return }
+    func relayout() {
+        guard let geometry = geometryProvider(), let panel, let model else { return }
         model.geometry = geometry
         panel.setFrame(geometry.panelFrame, display: true)
     }
@@ -116,7 +126,7 @@ final class NotchController {
         monitors.removeAll()
     }
 
-    private func mouseMoved(to point: NSPoint) {
+    func mouseMoved(to point: NSPoint) {
         guard let model, let panel else { return }
         let g = model.geometry
         if model.isExpanded {

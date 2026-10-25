@@ -6,6 +6,11 @@ public struct GitHubUser: Codable, Sendable, Equatable {
     public let login: String
     public let avatarURL: URL?
 
+    public init(login: String, avatarURL: URL?) {
+        self.login = login
+        self.avatarURL = avatarURL
+    }
+
     enum CodingKeys: String, CodingKey {
         case login
         case avatarURL = "avatar_url"
@@ -39,6 +44,13 @@ public struct Workflow: Codable, Sendable, Identifiable, Hashable {
     public let name: String
     public let path: String
     public let state: String
+
+    public init(id: Int, name: String, path: String, state: String) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.state = state
+    }
 
     public var isActive: Bool { state == "active" }
 }
@@ -153,6 +165,18 @@ public struct Branch: Codable, Sendable, Hashable {
     public let name: String
 }
 
+public struct Tag: Codable, Sendable, Hashable {
+    public let name: String
+}
+
+/// `GET /repos/{owner}/{repo}/contents/{path}` for a single file.
+struct FileContent: Decodable, Sendable {
+    let type: String
+    let size: Int
+    let encoding: String?
+    let content: String?
+}
+
 public struct RateLimit: Sendable, Equatable {
     public let limit: Int
     public let remaining: Int
@@ -221,19 +245,5 @@ extension WorkflowRun {
     public var availableActions: [RunAction] {
         if status.isActive { return [.cancel] }
         return conclusion?.isFailure == true ? [.rerun(failedOnly: true), .rerun(failedOnly: false)] : [.rerun(failedOnly: false)]
-    }
-}
-
-/// What the "Run workflow" form can offer for a repository.
-public struct DispatchOptions: Sendable, Equatable {
-    public let workflows: [Workflow]
-    public let branches: [String]
-    /// Pre-selected branch: a conventional default if the repo has one.
-    public let suggestedBranch: String?
-
-    public init(workflows: [Workflow], branches: [String]) {
-        self.workflows = workflows.filter(\.isActive)
-        self.branches = branches
-        suggestedBranch = ["main", "master", "develop"].first(where: branches.contains) ?? branches.first
     }
 }

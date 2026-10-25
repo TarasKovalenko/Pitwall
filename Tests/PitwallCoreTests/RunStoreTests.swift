@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import PitwallCore
+import PitwallTestSupport
 
 @MainActor
 @Suite struct RunStoreTests {
@@ -153,12 +154,22 @@ import Testing
         #expect(await api.actions == ["rerun 5 failedOnly=true", "cancel 6"])
     }
 
-    @Test func dispatchOptionsSkipDisabledWorkflowsAndSuggestMain() async throws {
+    @Test func dispatchOptionsIncludeTags() async throws {
         await api.set(workflows: [makeWorkflow(id: 1), makeWorkflow(id: 2, state: "disabled_manually")],
-                      branches: [Branch(name: "feature"), Branch(name: "main")])
+                      branches: [Branch(name: "feature"), Branch(name: "main")], tags: [Tag(name: "v1.0")])
         let store = makeStore(repos: ["o/r"])
         let options = try await store.dispatchOptions(for: ref("o/r"))
         #expect(options.workflows.map(\.id) == [1])
-        #expect(options.suggestedBranch == "main")
+        #expect(options.suggestedRef == GitRef(kind: .branch, name: "main"))
+        #expect(options.refs.last == GitRef(kind: .tag, name: "v1.0"))
+    }
+
+    @Test func dispatchSpecIsReadAtTheChosenRef() async throws {
+        let wf = makeWorkflow(id: 1)
+        await api.set(file: "on:\n  workflow_dispatch:\n    inputs:\n      name:\n        required: true\n", path: wf.path, ref: "v1.0")
+        let store = makeStore(repos: ["o/r"])
+        let spec = try await store.dispatchSpec(repo: ref("o/r"), workflow: wf, ref: GitRef(kind: .tag, name: "v1.0"))
+        #expect(spec?.inputs.map(\.key) == ["name"])
+        #expect(await api.fileRequests == ["\(wf.path)@v1.0"])
     }
 }

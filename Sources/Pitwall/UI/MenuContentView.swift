@@ -193,11 +193,7 @@ private struct RepoSection: View {
         }
     }
 
-    private var subtitle: String {
-        if let error = state.error { return error }
-        guard let run = state.latestRun else { return state.lastUpdated == nil ? "Loading…" : "No runs yet" }
-        return "\(run.title) · \(run.updatedAt.formatted(.relative(presentation: .named)))"
-    }
+    private var subtitle: String { RunText.repoSubtitle(state) }
 }
 
 struct RunRow: View {
@@ -205,7 +201,15 @@ struct RunRow: View {
     let progress: RunProgress?
     let perform: (@escaping () async throws -> Void) -> Void
     @Environment(RunStore.self) private var store
-    @State private var hovering = false
+    @State private var hovering: Bool
+
+    init(tracked: TrackedRun, progress: RunProgress?, perform: @escaping (@escaping () async throws -> Void) -> Void,
+         hovering: Bool = false) {
+        self.tracked = tracked
+        self.progress = progress
+        self.perform = perform
+        _hovering = State(initialValue: hovering)
+    }
 
     private var run: WorkflowRun { tracked.run }
 
@@ -237,12 +241,7 @@ struct RunRow: View {
         .contextMenu { menuItems }
     }
 
-    private var meta: String {
-        var parts = [run.name ?? "", run.headBranch ?? "", "#\(run.runNumber)"]
-        if let p = progress, run.status.isActive { parts.append(p.jobsText) }
-        else { parts.append(run.updatedAt.formatted(.relative(presentation: .named))) }
-        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
-    }
+    private var meta: String { RunText.runMeta(run, progress: progress) }
 
     @ViewBuilder
     private var actions: some View {

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Test (debug)
+        run: swift test --enable-code-coverage
+
+      - name: Coverage
+        run: |
+          set -o pipefail
+          # The test bundle's path depends on the SwiftPM build system in use.
+          BINS=$(find .build -type f -path "*ebug*/*.xctest/Contents/MacOS/*" -not -path "*.dSYM*")
+          test -n "$BINS" || { echo "No test binaries found"; exit 1; }
+          FIRST=$(echo "$BINS" | head -1)
+          OTHERS=$(echo "$BINS" | tail -n +2 | sed 's/^/-object /')
+          xcrun llvm-cov report "$FIRST" $OTHERS -instr-profile=.build/debug/codecov/default.profdata \
+            -ignore-filename-regex='Tests/|DerivedSources' | tee coverage.txt
+          echo "Line coverage: $(tail -1 coverage.txt | awk '{print $(NF-3)}')" >> "$GITHUB_STEP_SUMMARY"
+
+      # Some bugs only show up with optimisations on (see #3).
+      - name: Test (release)
+        run: swift test -c release -Xswiftc -enable-testing
+
+      - name: Build app
+        run: scripts/build-app.sh

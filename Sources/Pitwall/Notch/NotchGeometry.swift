@@ -38,12 +38,18 @@ struct NotchGeometry: Equatable {
     static func current() -> NotchGeometry? {
         let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
         guard let screen else { return nil }
-        let top = screen.safeAreaInsets.top
-        if top > 0, let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
-            let width = screen.frame.width - left.width - right.width
-            return NotchGeometry(screenFrame: screen.frame, notchSize: CGSize(width: width, height: top), hasNotch: true)
+        return make(frame: screen.frame, visibleFrame: screen.visibleFrame, safeAreaTop: screen.safeAreaInsets.top,
+                    leftArea: screen.auxiliaryTopLeftArea, rightArea: screen.auxiliaryTopRightArea)
+    }
+
+    /// The notch sits between the two auxiliary areas. Without one, a pill
+    /// as tall as the menu bar.
+    static func make(frame: NSRect, visibleFrame: NSRect, safeAreaTop top: CGFloat, leftArea: NSRect?, rightArea: NSRect?) -> NotchGeometry {
+        if top > 0, let left = leftArea, let right = rightArea {
+            let width = frame.width - left.width - right.width
+            return NotchGeometry(screenFrame: frame, notchSize: CGSize(width: width, height: top), hasNotch: true)
         }
-        let menuBar = max(screen.frame.maxY - screen.visibleFrame.maxY, 24)
-        return NotchGeometry(screenFrame: screen.frame, notchSize: CGSize(width: 120, height: menuBar), hasNotch: false)
+        let menuBar = max(frame.maxY - visibleFrame.maxY, 24)
+        return NotchGeometry(screenFrame: frame, notchSize: CGSize(width: 120, height: menuBar), hasNotch: false)
     }
 }

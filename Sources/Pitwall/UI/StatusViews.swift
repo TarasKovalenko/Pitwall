@@ -6,18 +6,18 @@ struct StatusIcon: View {
     let store: RunStore
 
     var body: some View {
-        switch store.overallStatus {
-        case .signedOut:
-            Image(systemName: "bolt.horizontal.circle")
-        case .idle:
-            Image(systemName: "checkmark.circle")
-        case .running(let count):
-            Image(systemName: "arrow.triangle.2.circlepath")
-            Text("\(count)")
-        case .failing:
-            Image(systemName: "xmark.circle")
-        case .error:
-            Image(systemName: "exclamationmark.triangle")
+        let status = store.overallStatus
+        Image(systemName: Self.symbol(for: status))
+        if case .running(let count) = status { Text("\(count)") }
+    }
+
+    static func symbol(for status: OverallStatus) -> String {
+        switch status {
+        case .signedOut: "bolt.horizontal.circle"
+        case .idle: "checkmark.circle"
+        case .running: "arrow.triangle.2.circlepath"
+        case .failing: "xmark.circle"
+        case .error: "exclamationmark.triangle"
         }
     }
 }
@@ -36,7 +36,7 @@ struct RunGlyph: View {
             .accessibilityLabel(label)
     }
 
-    private var symbol: String {
+    var symbol: String {
         if status.isActive { return status == .inProgress ? "circle.dotted.circle" : "clock" }
         switch conclusion ?? .unknown {
         case .success: return "checkmark.circle.fill"
@@ -47,7 +47,7 @@ struct RunGlyph: View {
         }
     }
 
-    private var color: Color {
+    var color: Color {
         if status.isActive { return status == .inProgress ? .orange : .secondary }
         switch conclusion ?? .unknown {
         case .success: return .green
@@ -56,7 +56,7 @@ struct RunGlyph: View {
         }
     }
 
-    private var label: String {
+    var label: String {
         status.isActive ? status.rawValue.replacingOccurrences(of: "_", with: " ") : (conclusion?.rawValue ?? "unknown")
     }
 }

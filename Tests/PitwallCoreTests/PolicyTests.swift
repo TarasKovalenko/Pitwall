@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import PitwallCore
+import PitwallTestSupport
 
 @Suite struct NotificationPolicyTests {
     let repo = RepoRef(fullName: "o/r")!
