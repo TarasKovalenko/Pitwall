@@ -26,7 +26,7 @@ Release builds are ad-hoc signed, not notarized, so the script clears the quaran
 
 ## Releasing
 
-Push a version tag. The `Release` workflow runs the tests, builds the app with that version stamped into `Info.plist`, and publishes `Pitwall.zip` and its checksum as a GitHub release.
+Push a version tag. The `Release` workflow runs the tests, builds the app with that version stamped into `Info.plist`, and publishes `Pitwall.zip` and its checksum as a GitHub release. The version shows in the menu footer and in Settings → General. Local builds take it from the latest tag.
 
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
@@ -60,7 +60,8 @@ Read-only access is enough if you only want to watch. Re-running, cancelling and
 
 ## How it handles your token
 
-- Stored in the login Keychain, readable only when the Mac is unlocked and never synced to other devices. Not in UserDefaults, not in any file, not in logs.
+- Stored in `~/Library/Application Support/Pitwall/token`. The file is 0600 inside a 0700 folder, so only your user can read it, and it's written atomically. Pitwall ignores the file if it's a symlink, belongs to someone else, is readable by others or is oversized. The token never goes into UserDefaults or logs.
+- Why not the Keychain? Releases are ad-hoc signed, and the Keychain only gives an item back to the exact build that saved it, so every update looked like a sign-out. Up to 0.2.1 the token lived in the Keychain. The first launch of a newer version moves it into the file (macOS may ask for your password once to allow that) and removes the Keychain copy.
 - Only ever sent to `https://api.github.com`. The host is hard-coded, and redirects to any other host are refused, so a redirect can't leak the token.
 - Repo names, branch names and input names are validated before they go anywhere near a URL or request body. Each path segment is encoded on its own, so `../` or `?` in a name can't change the request.
 - The app only opens `https://github.com/...` links in your browser, including from notifications.
@@ -85,9 +86,9 @@ Measured on an M-series MacBook, signed out and idle: 0.0% CPU, about 18 MB memo
 
 ```
 App/Pitwall.xcodeproj  Xcode app target; compiles Sources/Pitwall, links PitwallCore
-Sources/PitwallCore/   RunStore, API client, models, validation, polling, notification policy, Keychain (no UI)
+Sources/PitwallCore/   RunStore, API client, models, validation, polling, notification policy, token file (no UI)
 Sources/Pitwall/       SwiftUI + AppKit app: menu bar, settings, notch panel, notifications
-Tests/PitwallCoreTests/  Core: RunStore and GitHubClient through in-memory adapters, the YAML reader, policies, Keychain
+Tests/PitwallCoreTests/  Core: RunStore and GitHubClient through in-memory adapters, the YAML reader, policies, token storage
 Tests/PitwallAppTests/   App: view logic, notch and app lifecycle, and every view rendered in its main states
 Tests/Support/           Fakes shared by both: in-memory GitHub, scripted transport, sleepers
 GLOSSARY.md              names used in the code (auth state, run action, poke, …)

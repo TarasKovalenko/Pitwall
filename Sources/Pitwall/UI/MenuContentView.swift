@@ -90,6 +90,9 @@ struct MenuContentView: View {
                     .foregroundStyle(rl.remaining < 200 ? .orange : .secondary)
             }
             Spacer()
+            Text(AppVersion.current)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             SettingsLink {
                 Image(systemName: "gearshape")
             }

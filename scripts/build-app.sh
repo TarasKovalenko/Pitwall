@@ -3,6 +3,7 @@
 #   scripts/build-app.sh            release build, ad-hoc signed
 #   SIGN_ID="Developer ID Application: …" scripts/build-app.sh   real signing
 #   VERSION=1.2.0 BUILD_NUMBER=42 scripts/build-app.sh            stamp Info.plist
+#                                   (VERSION defaults to the latest git tag)
 #   ARCHS="arm64 x86_64" scripts/build-app.sh                    universal binary
 set -euo pipefail
 
@@ -37,6 +38,10 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 PLIST="$APP/Contents/Info.plist"
+if [[ -z "${VERSION:-}" ]]; then
+    VERSION="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+    VERSION="${VERSION#v}"
+fi
 if [[ -n "${VERSION:-}" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 fi
@@ -45,7 +50,7 @@ if [[ -n "${BUILD_NUMBER:-}" ]]; then
 fi
 
 # Hardened runtime on, no extra entitlements: the app needs network and
-# Keychain only, both available by default outside the sandbox.
+# its own Application Support folder, both available outside the sandbox.
 codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" "$APP"
 codesign --verify --strict "$APP"
 echo "Built $APP"

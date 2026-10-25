@@ -101,9 +101,8 @@ public final class RunStore {
         syncRepoList()
     }
 
-    /// The real thing: Keychain token, live GitHub API.
-    public convenience init(settings: AppSettings, keychainService: String = TokenStore.defaultService) {
-        let tokens = TokenStore(service: keychainService)
+    /// The real thing: token file, live GitHub API.
+    public convenience init(settings: AppSettings, tokens: any TokenStoring = FileTokenStore.standard()) {
         self.init(settings: settings, tokens: tokens, api: GitHubClient(tokenProvider: { [tokens] in tokens.token() }))
     }
 
@@ -260,18 +259,23 @@ public final class RunStore {
             return
         }
         guard hasToken else { return }
+        // The task clears `inFlight` in the same main-actor step that decides
+        // it's done. Clearing it after `await task.value` left a gap where a
+        // new call waited on the finished task and skipped its poll.
         let task = Task { [weak self] in
             while let self {
                 self.refreshAgain = false
                 await self.refreshOnce()
-                if !self.refreshAgain { break }
+                if !self.refreshAgain {
+                    self.inFlight = nil
+                    self.isRefreshing = false
+                    break
+                }
             }
         }
         inFlight = task
         isRefreshing = true
         await task.value
-        inFlight = nil
-        isRefreshing = false
     }
 
     private func refreshOnce() async {

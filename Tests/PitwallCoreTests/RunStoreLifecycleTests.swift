@@ -109,9 +109,10 @@ private let validToken = "ghp_" + String(repeating: "c", count: 36)
         #expect(!sleeper.requested.contains(.seconds(99)))
     }
 
-    @Test func liveStoreUsesTheGivenKeychainServiceAndRealSleep() async {
+    @Test func liveStoreUsesTheGivenTokenStoreAndRealSleep() async {
+        let url = FileManager.default.temporaryDirectory.appending(path: "pitwall-live-\(UUID().uuidString)/token")
         let store = RunStore(settings: AppSettings(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                             keychainService: "dev.pitwall.tests.\(UUID().uuidString)")
+                             tokens: FileTokenStore(url: url))
         #expect(store.authState == .signedOut)
         let start = ContinuousClock.now
         await store.sleep(seconds: 0.02)
@@ -152,5 +153,30 @@ private let validToken = "ghp_" + String(repeating: "c", count: 36)
         }
         #expect(polledAgain)
         store.stop()
+    }
+
+    /// A refresh that starts just as the previous one ends (its task done, its
+    /// caller not yet resumed) used to wait on the finished task and return
+    /// without polling. On wake that meant no poll until the next interval.
+    @MainActor
+    @Test func refreshStartedAsTheLastOneEndsStillPolls() async {
+        let api = FakeGitHub()
+        let repo = RepoRef(fullName: "o/r")!
+        let settings = AppSettings(defaults: UserDefaults(suiteName: "pitwall-gap-\(UUID().uuidString)")!)
+        settings.trackedRepos = [repo]
+        let store = RunStore(settings: settings, tokens: MemoryTokens("ghp_" + String(repeating: "c", count: 36)),
+                             api: api, sleep: ManualSleeper().sleep)
+        await api.set(runs: [makeRun(id: 1, status: "in_progress")], for: repo)
+        await store.refresh()
+        await api.set(runs: [makeRun(id: 1, status: "completed", conclusion: "success")], for: repo)
+
+        // `onEvent` runs as the last step of a refresh, so a refresh queued
+        // from it gets the main actor right in that gap.
+        var late: Task<Void, Never>?
+        store.onEvent = { _ in if late == nil { late = Task { await store.refresh() } } }
+        await store.refresh()
+        await late?.value
+        #expect(late != nil)
+        #expect(await api.runsCalls == 3)
     }
 }

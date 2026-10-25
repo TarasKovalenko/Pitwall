@@ -154,7 +154,10 @@ final class Rendered<V: View> {
         let store = makeStore()
         let r = Rendered(DispatchView(store: store, repo: repo, close: {}))
         await r.settle { await !api.fileRequests.isEmpty }
-        #expect(await api.fileRequests == ["\(workflow.path)@main"])
+        // SwiftUI may restart the task if the view reappears, so repeats are fine;
+        // asking for any other file or ref isn't.
+        let requests = await api.fileRequests
+        #expect(!requests.isEmpty && requests.allSatisfy { $0 == "\(workflow.path)@main" }, "\(requests)")
         #expect(r.fittingHeight > 150)
     }
 
