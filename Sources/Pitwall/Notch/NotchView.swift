@@ -124,6 +124,7 @@ private struct NotchRunRow: View {
     let progress: RunProgress?
     @Environment(RunStore.self) private var store
     @State private var hovering = false
+    @State private var actionError: String?
 
     private var run: WorkflowRun { tracked.run }
 
@@ -148,22 +149,27 @@ private struct NotchRunRow: View {
                         .tint(progress?.hasFailure == true ? .red : .orange)
                     Text(detail).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                 }
+                if let actionError {
+                    Text(actionError).font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                }
             }
             if hovering {
+                let action = run.primaryAction
                 Button {
                     let store = store, tracked = tracked
                     Task {
-                        if tracked.run.status.isActive {
-                            try? await store.cancel(tracked)
-                        } else {
-                            try? await store.rerun(tracked, failedOnly: tracked.run.conclusion?.isFailure == true)
+                        do {
+                            try await store.perform(action, on: tracked)
+                            actionError = nil
+                        } catch {
+                            actionError = error.localizedDescription
                         }
                     }
                 } label: {
-                    Image(systemName: run.status.isActive ? "stop.circle" : "arrow.counterclockwise")
+                    Image(systemName: action.symbol)
                 }
                 .buttonStyle(.borderless)
-                .help(run.status.isActive ? "Cancel run" : "Re-run")
+                .help(action.title)
             }
         }
         .contentShape(Rectangle())
@@ -173,9 +179,7 @@ private struct NotchRunRow: View {
 
     private var detail: String {
         guard let p = progress else { return run.status == .queued ? "Queued" : "Starting…" }
-        let jobs = "\(p.completedJobs)/\(p.totalJobs) jobs"
-        let current = [p.currentJob, p.currentStep].compactMap { $0 }.joined(separator: " › ")
-        return current.isEmpty ? jobs : "\(jobs) · \(current)"
+        return p.currentActivity.map { "\(p.jobsText) · \($0)" } ?? p.jobsText
     }
 }
 

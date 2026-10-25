@@ -29,14 +29,31 @@ public enum GitHubError: Error, Equatable, LocalizedError {
     }
 }
 
+/// Everything RunStore needs from GitHub. `GitHubClient` is the real
+/// adapter; tests use an in-memory one.
+public protocol GitHubAPI: Sendable {
+    func currentUser() async throws -> GitHubUser
+    func repositories() async throws -> [Repository]
+    func runs(for repo: RepoRef) async throws -> [WorkflowRun]
+    func jobs(for repo: RepoRef, runID: Int) async throws -> [Job]
+    func workflows(for repo: RepoRef) async throws -> [Workflow]
+    func branches(for repo: RepoRef) async throws -> [Branch]
+    func dispatch(repo: RepoRef, workflowID: Int, ref: String, inputs: [String: String]) async throws
+    func rerun(repo: RepoRef, runID: Int, failedOnly: Bool) async throws
+    func cancel(repo: RepoRef, runID: Int) async throws
+    /// Forget cached responses, e.g. when the account changes.
+    func clearCache() async
+    /// Budget reported by the most recent response.
+    var rateLimit: RateLimit? { get async }
+}
+
 /// Talks to the GitHub REST API. All requests go to `https://api.github.com`;
 /// the host is fixed, so nothing user-controlled can redirect the token.
-public actor GitHubClient {
+public actor GitHubClient: GitHubAPI {
     public static let apiHost = "api.github.com"
 
-    private let session: URLSession
+    private let transport: any HTTPTransport
     private let tokenProvider: @Sendable () -> String?
-    private let redirectGuard = SameHostRedirectGuard()
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -48,20 +65,15 @@ public actor GitHubClient {
     private var etagCache: [String: (etag: String, body: Data)] = [:]
     private var etagOrder: [String] = []
     private let etagCapacity = 300
+    /// Bumped by `clearCache`. A response that started before the bump
+    /// belongs to the previous account and must not land in the cache.
+    private var cacheGeneration = 0
+    private let maxRepositoryPages = 5
 
     public private(set) var rateLimit: RateLimit?
 
-    public init(tokenProvider: @escaping @Sendable () -> String?) {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        config.httpShouldSetCookies = false
-        config.urlCache = nil
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 60
-        config.httpMaximumConnectionsPerHost = 4
-        config.waitsForConnectivity = false
-        self.session = URLSession(configuration: config)
+    public init(tokenProvider: @escaping @Sendable () -> String?, transport: any HTTPTransport = URLSessionTransport()) {
+        self.transport = transport
         self.tokenProvider = tokenProvider
     }
 
@@ -72,10 +84,10 @@ public actor GitHubClient {
     }
 
     /// Repositories the user can see, most recently pushed first. Capped at
-    /// `maxPages` so huge org memberships don't stall the settings screen.
-    public func repositories(maxPages: Int = 5) async throws -> [Repository] {
+    /// five pages so huge org memberships don't stall the settings screen.
+    public func repositories() async throws -> [Repository] {
         var all: [Repository] = []
-        for page in 1...maxPages {
+        for page in 1...maxRepositoryPages {
             let batch: [Repository] = try await get(["user", "repos"], query: [
                 .init(name: "per_page", value: "100"),
                 .init(name: "page", value: String(page)),
@@ -88,10 +100,10 @@ public actor GitHubClient {
         return all
     }
 
-    public func runs(for repo: RepoRef, perPage: Int = 10) async throws -> [WorkflowRun] {
+    public func runs(for repo: RepoRef) async throws -> [WorkflowRun] {
         let list: WorkflowRunList = try await get(
             ["repos", repo.owner, repo.name, "actions", "runs"],
-            query: [.init(name: "per_page", value: String(min(max(perPage, 1), 100)))]
+            query: [.init(name: "per_page", value: "10")]
         )
         return list.workflowRuns
     }
@@ -144,29 +156,39 @@ public actor GitHubClient {
     public func clearCache() {
         etagCache.removeAll()
         etagOrder.removeAll()
+        cacheGeneration += 1
+        rateLimit = nil
     }
 
     // MARK: Plumbing
 
     private func get<T: Decodable>(_ path: [String], query: [URLQueryItem] = []) async throws -> T {
         let url = try Self.makeURL(path: path, query: query)
-        var request = try authorizedRequest(url: url, method: "GET")
         let key = url.absoluteString
-        if let cached = etagCache[key] {
-            request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
-        }
+        let generation = cacheGeneration
+        var request = try authorizedRequest(url: url, method: "GET")
+        let cached = etagCache[key]
+        if let cached { request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match") }
 
-        let (data, http) = try await perform(request)
-        let body: Data
-        if http.statusCode == 304, let cached = etagCache[key] {
-            body = cached.body
-        } else {
-            try check(http, data: data)
-            body = data
-            if let etag = http.value(forHTTPHeaderField: "ETag") {
-                storeETag(etag, body: data, for: key)
+        var (data, http) = try await perform(request)
+        if http.statusCode == 304 {
+            // Read the cache again: it may have been cleared while we waited.
+            if let fresh = etagCache[key], fresh.etag == cached?.etag, generation == cacheGeneration {
+                return try decode(fresh.body)
             }
+            // Nothing to serve the 304 from. Ask once more for the full body,
+            // with a fresh request so it carries the current token.
+            request = try authorizedRequest(url: url, method: "GET")
+            (data, http) = try await perform(request)
         }
+        try check(http, data: data)
+        if let etag = http.value(forHTTPHeaderField: "ETag"), generation == cacheGeneration {
+            storeETag(etag, body: data, for: key)
+        }
+        return try decode(data)
+    }
+
+    private func decode<T: Decodable>(_ body: Data) throws -> T {
         do {
             return try decoder.decode(T.self, from: body)
         } catch {
@@ -197,16 +219,13 @@ public actor GitHubClient {
     }
 
     private func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        do {
-            let (data, response) = try await session.data(for: request, delegate: redirectGuard)
-            guard let http = response as? HTTPURLResponse else { throw GitHubError.transport("No HTTP response") }
-            updateRateLimit(from: http)
-            return (data, http)
-        } catch let error as GitHubError {
-            throw error
-        } catch {
-            throw GitHubError.transport((error as? URLError)?.code.description ?? "request failed")
+        // The token only ever goes to the API host, whatever transport is plugged in.
+        guard request.url?.scheme == "https", request.url?.host == Self.apiHost else {
+            throw GitHubError.invalidInput("Refusing to send the token outside \(Self.apiHost)")
         }
+        let (data, http) = try await transport.send(request)
+        if let limit = Self.rateLimit(from: http) { rateLimit = limit }
+        return (data, http)
     }
 
     private func check(_ http: HTTPURLResponse, data: Data) throws {
@@ -216,9 +235,13 @@ public actor GitHubClient {
         case 401:
             throw GitHubError.unauthorized
         case 403, 429:
-            if rateLimit?.remaining == 0 || http.value(forHTTPHeaderField: "Retry-After") != nil {
-                let retry = Double(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 60
-                throw GitHubError.rateLimited(resetAt: rateLimit?.resetAt ?? Date().addingTimeInterval(retry))
+            // Decide from this response's own headers, not whatever was stored last.
+            let limit = Self.rateLimit(from: http)
+            let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
+            if limit?.remaining == 0 || retryAfter != nil || http.statusCode == 429 {
+                let resetAt = retryAfter.map { Date().addingTimeInterval($0) }
+                    ?? limit?.resetAt ?? Date().addingTimeInterval(60)
+                throw GitHubError.rateLimited(resetAt: resetAt)
             }
             throw GitHubError.forbidden(Self.apiMessage(data) ?? "missing permission")
         case 404:
@@ -230,13 +253,13 @@ public actor GitHubClient {
         }
     }
 
-    private func updateRateLimit(from http: HTTPURLResponse) {
+    static func rateLimit(from http: HTTPURLResponse) -> RateLimit? {
         guard
             let limit = http.value(forHTTPHeaderField: "X-RateLimit-Limit").flatMap(Int.init),
             let remaining = http.value(forHTTPHeaderField: "X-RateLimit-Remaining").flatMap(Int.init),
             let reset = http.value(forHTTPHeaderField: "X-RateLimit-Reset").flatMap(TimeInterval.init)
-        else { return }
-        rateLimit = RateLimit(limit: limit, remaining: remaining, resetAt: Date(timeIntervalSince1970: reset))
+        else { return nil }
+        return RateLimit(limit: limit, remaining: remaining, resetAt: Date(timeIntervalSince1970: reset))
     }
 
     private func storeETag(_ etag: String, body: Data, for key: String) {
@@ -274,31 +297,5 @@ public actor GitHubClient {
         struct APIError: Decodable { let message: String }
         guard let message = try? JSONDecoder().decode(APIError.self, from: data).message else { return nil }
         return String(message.prefix(200))
-    }
-}
-
-/// Refuses redirects that leave `api.github.com` over HTTPS, so the bearer
-/// token is never replayed to another host.
-final class SameHostRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest
-    ) async -> URLRequest? {
-        guard request.url?.scheme == "https", request.url?.host == GitHubClient.apiHost else { return nil }
-        return request
-    }
-}
-
-private extension URLError.Code {
-    var description: String {
-        switch self {
-        case .notConnectedToInternet: "offline"
-        case .timedOut: "timed out"
-        case .cannotFindHost, .dnsLookupFailed: "can't reach GitHub"
-        case .secureConnectionFailed, .serverCertificateUntrusted: "TLS failure"
-        default: "error \(rawValue)"
-        }
     }
 }

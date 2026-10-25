@@ -84,9 +84,10 @@ Measured on an M-series MacBook, signed out and idle: 0.0% CPU, about 18 MB memo
 
 ```
 App/Pitwall.xcodeproj  Xcode app target; compiles Sources/Pitwall, links PitwallCore
-Sources/PitwallCore/   API client, models, validation, polling, Keychain (no UI, fully tested)
+Sources/PitwallCore/   RunStore, API client, models, validation, polling, notification policy, Keychain (no UI)
 Sources/Pitwall/       SwiftUI + AppKit app: menu bar, settings, notch panel, notifications
-Tests/                   Swift Testing suites for validation, polling and transitions
+Tests/                   Swift Testing suites: RunStore and GitHubClient through in-memory adapters, plus policies
+GLOSSARY.md              names used in the code (auth state, run action, poke, …)
 scripts/build-app.sh     builds and signs the .app bundle
 scripts/install.sh       installs the latest release (used by the curl one-liner)
 .github/workflows/       release workflow, triggered by v* tags

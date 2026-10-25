@@ -29,12 +29,14 @@ private struct AccountSettings: View {
 
     var body: some View {
         Form {
-            if let user = store.user, store.authError == nil {
+            switch store.authState {
+            case .signedIn(let user):
                 LabeledContent("Signed in as", value: "@\(user.login)")
-                Button("Sign out", role: .destructive) {
-                    Task { await store.signOut() }
-                }
-            } else {
+                signOutButton
+            case .connecting:
+                LabeledContent("Status", value: "Connecting to GitHub…")
+                signOutButton
+            case .signedOut, .tokenProblem:
                 Section {
                     SecureField("Personal access token", text: $token)
                         .textContentType(.password)
@@ -59,11 +61,20 @@ private struct AccountSettings: View {
                     .foregroundStyle(.secondary)
                 }
             }
+            if case .tokenProblem(let message) = store.authState {
+                Text(message).foregroundStyle(.red).font(.callout)
+            }
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout)
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var signOutButton: some View {
+        Button("Sign out", role: .destructive) {
+            Task { await store.signOut() }
+        }
     }
 
     private func submit(_ source: @escaping () async throws -> String) {
@@ -111,8 +122,7 @@ private struct RepositorySettings: View {
                     Text(ref.fullName)
                     Spacer()
                     Button {
-                        settings.untrack(ref)
-                        store.syncRepoList()
+                        store.untrack(ref)
                     } label: {
                         Image(systemName: "minus.circle.fill").foregroundStyle(.red)
                     }
@@ -138,9 +148,7 @@ private struct RepositorySettings: View {
                     Spacer()
                     Button("Watch") {
                         guard let ref = RepoRef(fullName: repo.fullName) else { return }
-                        settings.track(ref)
-                        store.syncRepoList()
-                        store.pokeSoon()
+                        store.track(ref)
                     }
                 }
             }
@@ -156,18 +164,16 @@ private struct RepositorySettings: View {
 
     private func addManual() {
         guard let ref = RepoRef(fullName: manual) else { return }
-        settings.track(ref)
-        store.syncRepoList()
-        store.pokeSoon()
+        store.track(ref)
         manual = ""
     }
 
     private func load() async {
-        guard store.tokens.token() != nil, available.isEmpty else { return }
+        guard store.authState.hasUsableToken, available.isEmpty else { return }
         loading = true
         defer { loading = false }
         do {
-            available = try await store.client.repositories()
+            available = try await store.availableRepositories()
         } catch {
             self.error = error.localizedDescription
         }

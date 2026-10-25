@@ -173,6 +173,15 @@ public struct RunProgress: Sendable, Equatable {
         totalJobs == 0 ? 0 : Double(completedJobs) / Double(totalJobs)
     }
 
+    /// "3/5 jobs"
+    public var jobsText: String { "\(completedJobs)/\(totalJobs) jobs" }
+
+    /// "build › Run tests", or nil when nothing is running yet.
+    public var currentActivity: String? {
+        guard let currentJob else { return nil }
+        return [currentJob, currentStep].compactMap { $0 }.joined(separator: " › ")
+    }
+
     public init(jobs: [Job]) {
         totalJobs = jobs.count
         completedJobs = jobs.filter { $0.status == .completed }.count
@@ -192,5 +201,39 @@ public struct TrackedRun: Sendable, Identifiable, Hashable {
     public init(repo: RepoRef, run: WorkflowRun) {
         self.repo = repo
         self.run = run
+    }
+}
+
+/// Something the user can do to a run from the menu or the notch.
+public enum RunAction: Sendable, Hashable {
+    case cancel
+    case rerun(failedOnly: Bool)
+}
+
+extension WorkflowRun {
+    /// The one-click action: cancel while running, otherwise re-run
+    /// (only the failed jobs if something failed).
+    public var primaryAction: RunAction {
+        status.isActive ? .cancel : .rerun(failedOnly: conclusion?.isFailure == true)
+    }
+
+    /// Everything offered in the context menu, primary action first.
+    public var availableActions: [RunAction] {
+        if status.isActive { return [.cancel] }
+        return conclusion?.isFailure == true ? [.rerun(failedOnly: true), .rerun(failedOnly: false)] : [.rerun(failedOnly: false)]
+    }
+}
+
+/// What the "Run workflow" form can offer for a repository.
+public struct DispatchOptions: Sendable, Equatable {
+    public let workflows: [Workflow]
+    public let branches: [String]
+    /// Pre-selected branch: a conventional default if the repo has one.
+    public let suggestedBranch: String?
+
+    public init(workflows: [Workflow], branches: [String]) {
+        self.workflows = workflows.filter(\.isActive)
+        self.branches = branches
+        suggestedBranch = ["main", "master", "develop"].first(where: branches.contains) ?? branches.first
     }
 }

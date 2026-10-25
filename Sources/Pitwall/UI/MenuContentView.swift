@@ -32,7 +32,7 @@ struct MenuContentView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("Pitwall").font(.headline)
-            if let login = store.user?.login {
+            if let login = store.authState.user?.login {
                 Text("@\(login)").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -55,12 +55,10 @@ struct MenuContentView: View {
 
     @ViewBuilder
     private var content: some View {
-        if store.tokens.token() == nil || store.authError != nil {
-            EmptyStateView(
-                symbol: "key",
-                title: store.authError == nil ? "Connect GitHub" : "Token problem",
-                message: store.authError ?? "Add a token or import the one from GitHub CLI."
-            )
+        if case .signedOut = store.authState {
+            EmptyStateView(symbol: "key", title: "Connect GitHub", message: "Add a token or import the one from GitHub CLI.")
+        } else if case .tokenProblem(let message) = store.authState {
+            EmptyStateView(symbol: "key", title: "Token problem", message: message)
         } else if let repo = dispatchTarget {
             DispatchView(store: store, repo: repo) { dispatchTarget = nil }
         } else if store.repos.isEmpty {
@@ -220,8 +218,8 @@ struct RunRow: View {
                 if run.status.isActive, let progress {
                     ProgressView(value: progress.fraction)
                         .tint(progress.hasFailure ? .red : .orange)
-                    if let job = progress.currentJob {
-                        Text([job, progress.currentStep].compactMap { $0 }.joined(separator: " › "))
+                    if let activity = progress.currentActivity {
+                        Text(activity)
                             .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
@@ -241,47 +239,30 @@ struct RunRow: View {
 
     private var meta: String {
         var parts = [run.name ?? "", run.headBranch ?? "", "#\(run.runNumber)"]
-        if let p = progress, run.status.isActive { parts.append("\(p.completedJobs)/\(p.totalJobs) jobs") }
+        if let p = progress, run.status.isActive { parts.append(p.jobsText) }
         else { parts.append(run.updatedAt.formatted(.relative(presentation: .named))) }
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     @ViewBuilder
     private var actions: some View {
-        HStack(spacing: 6) {
-            if run.status.isActive {
-                Button { cancel() } label: { Image(systemName: "stop.circle") }.help("Cancel run")
-            } else {
-                Button { rerun(failedOnly: run.conclusion?.isFailure == true) } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                }
-                .help(run.conclusion?.isFailure == true ? "Re-run failed jobs" : "Re-run")
-            }
-        }
-        .buttonStyle(.borderless)
+        let action = run.primaryAction
+        Button { perform(action) } label: { Image(systemName: action.symbol) }
+            .help(action.title)
+            .buttonStyle(.borderless)
     }
 
     @ViewBuilder
     private var menuItems: some View {
         Button("Open on GitHub") { openOnGitHub(run.htmlURL) }
         Divider()
-        if run.status.isActive {
-            Button("Cancel run") { cancel() }
-        } else {
-            Button("Re-run all jobs") { rerun(failedOnly: false) }
-            if run.conclusion?.isFailure == true {
-                Button("Re-run failed jobs") { rerun(failedOnly: true) }
-            }
+        ForEach(run.availableActions, id: \.self) { action in
+            Button(action.title) { perform(action) }
         }
     }
 
-    private func cancel() {
+    private func perform(_ action: RunAction) {
         let store = store, tracked = tracked
-        perform { try await store.cancel(tracked) }
-    }
-
-    private func rerun(failedOnly: Bool) {
-        let store = store, tracked = tracked
-        perform { try await store.rerun(tracked, failedOnly: failedOnly) }
+        perform { try await store.perform(action, on: tracked) }
     }
 }

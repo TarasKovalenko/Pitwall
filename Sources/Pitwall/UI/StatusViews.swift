@@ -64,3 +64,20 @@ struct RunGlyph: View {
 extension WorkflowRun {
     var glyph: RunGlyph { RunGlyph(status: status, conclusion: conclusion) }
 }
+
+extension RunAction {
+    var title: String {
+        switch self {
+        case .cancel: "Cancel run"
+        case .rerun(failedOnly: true): "Re-run failed jobs"
+        case .rerun(failedOnly: false): "Re-run all jobs"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .cancel: "stop.circle"
+        case .rerun: "arrow.counterclockwise"
+        }
+    }
+}
