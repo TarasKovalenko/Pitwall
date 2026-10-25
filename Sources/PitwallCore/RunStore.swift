@@ -176,21 +176,27 @@ public final class RunStore {
     private func fetchRuns(_ refs: [RepoRef]) async -> [(RepoRef, Result<[WorkflowRun], Error>)] {
         let client = self.client
         let limit = maxConcurrentRequests
+        @Sendable func fetch(_ ref: RepoRef) async -> (RepoRef, Result<[WorkflowRun], Error>) {
+            do { return (ref, .success(try await client.runs(for: ref))) }
+            catch { return (ref, .failure(error)) }
+        }
+        // Sliding window: start `limit` fetches, then one more each time one
+        // finishes. Keep `group` out of nested functions: the earlier version
+        // added tasks from a nested func capturing the group, and release
+        // builds aborted in the concurrency runtime as soon as more than
+        // `limit` repos were watched (debug builds were fine).
         return await withTaskGroup(of: (RepoRef, Result<[WorkflowRun], Error>).self) { group in
             var results: [(RepoRef, Result<[WorkflowRun], Error>)] = []
-            var iterator = refs.makeIterator()
-            func addNext() -> Bool {
-                guard let ref = iterator.next() else { return false }
-                group.addTask {
-                    do { return (ref, .success(try await client.runs(for: ref))) }
-                    catch { return (ref, .failure(error)) }
-                }
-                return true
+            var pending = refs[...]
+            for ref in pending.prefix(limit) {
+                group.addTask { await fetch(ref) }
             }
-            for _ in 0..<limit where !addNext() { break }
+            pending = pending.dropFirst(limit)
             while let result = await group.next() {
                 results.append(result)
-                _ = addNext()
+                if let ref = pending.popFirst() {
+                    group.addTask { await fetch(ref) }
+                }
             }
             return results
         }
