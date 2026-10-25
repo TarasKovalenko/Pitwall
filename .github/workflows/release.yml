@@ -1,0 +1,40 @@
+name: Release
+
+# Push a tag like v0.2.0 to build, test and publish Pitwall.zip as a release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test
+
+      - name: Build app
+        env:
+          VERSION: ${{ github.ref_name }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: VERSION="${VERSION#v}" scripts/build-app.sh
+
+      - name: Package
+        run: |
+          cd build
+          ditto -c -k --sequesterRsrc --keepParent Pitwall.app Pitwall.zip
+          shasum -a 256 Pitwall.zip > Pitwall.zip.sha256
+          cat Pitwall.zip.sha256
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/Pitwall.zip build/Pitwall.zip.sha256 \
+            --title "Pitwall $GITHUB_REF_NAME" \
+            --generate-notes
