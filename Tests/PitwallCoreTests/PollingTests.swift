@@ -1,20 +1,7 @@
 import Foundation
 import Testing
 @testable import PitwallCore
-
-func makeRun(id: Int, status: String, conclusion: String? = nil, updated: Date = Date()) -> WorkflowRun {
-    let iso = ISO8601DateFormatter()
-    let json = """
-    {"id": \(id), "name": "CI", "display_title": "Fix thing", "status": "\(status)",
-     "conclusion": \(conclusion.map { "\"\($0)\"" } ?? "null"), "head_branch": "main",
-     "event": "push", "html_url": "https://github.com/o/r/actions/runs/\(id)", "run_number": \(id),
-     "run_attempt": 1, "workflow_id": 7, "created_at": "\(iso.string(from: updated))",
-     "updated_at": "\(iso.string(from: updated))", "run_started_at": null, "actor": {"login": "me"}}
-    """
-    let d = JSONDecoder()
-    d.dateDecodingStrategy = .iso8601
-    return try! d.decode(WorkflowRun.self, from: Data(json.utf8))
-}
+import PitwallTestSupport
 
 @Suite struct PollingTests {
     let repo = RepoRef(fullName: "o/r")!

@@ -12,6 +12,10 @@ Names used in the code. If you're about to invent a new one for something listed
 
 **Run action**: what the user can do to a run (`RunAction`): cancel, or re-run all or only the failed jobs. The **primary action** is the one-click button: cancel while active, otherwise re-run (failed jobs only if something failed).
 
+**Ref**: a branch or tag a workflow can run on (`GitRef`). The Run workflow form searches both.
+
+**Dispatch spec**: the `workflow_dispatch` inputs a workflow file declares at a given ref (`DispatchSpec`), read by `MiniYAML`. If the file can't be read, the form falls back to free-form name/value inputs.
+
 **Run event**: a run started or finished between two polls (`RunEvent`). The first poll of a repo only seeds state, so launching doesn't replay old runs.
 
 **Recently finished**: runs that just finished, shown in the notch for 12 seconds (`RecentlyFinished`).

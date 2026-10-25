@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import PitwallCore
+import PitwallTestSupport
 
 private let userJSON = #"{"login":"me","avatar_url":null}"#
 private let token = "ghp_" + String(repeating: "a", count: 36)

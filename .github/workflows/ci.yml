@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Test (debug)
+        run: swift test --enable-code-coverage
+
+      - name: Coverage
+        run: |
+          BIN=$(find .build -path "*Debug/PitwallAppTests.xctest/Contents/MacOS/PitwallAppTests" | head -1)
+          xcrun llvm-cov report "$BIN" -instr-profile=.build/debug/codecov/default.profdata \
+            -ignore-filename-regex='Tests/|DerivedSources' | tee coverage.txt
+          tail -1 coverage.txt >> "$GITHUB_STEP_SUMMARY"
+
+      # Some bugs only show up with optimisations on (see #3).
+      - name: Test (release)
+        run: swift test -c release -Xswiftc -enable-testing
+
+      - name: Build app
+        run: scripts/build-app.sh

@@ -21,7 +21,7 @@ struct SettingsView: View {
 
 // MARK: - Account
 
-private struct AccountSettings: View {
+struct AccountSettings: View {
     let store: RunStore
     @State private var token = ""
     @State private var busy = false
@@ -94,7 +94,7 @@ private struct AccountSettings: View {
 
 // MARK: - Repositories
 
-private struct RepositorySettings: View {
+struct RepositorySettings: View {
     let store: RunStore
     @State private var available: [Repository] = []
     @State private var search = ""
@@ -182,7 +182,7 @@ private struct RepositorySettings: View {
 
 // MARK: - General
 
-private struct GeneralSettings: View {
+struct GeneralSettings: View {
     @Bindable var settings: AppSettings
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
@@ -227,7 +227,7 @@ private struct GeneralSettings: View {
         }
     }
 
-    private static func label(_ seconds: Double) -> String {
+    static func label(_ seconds: Double) -> String {
         seconds < 60 ? "every \(Int(seconds))s" : "every \(Int(seconds / 60)) min"
     }
 }

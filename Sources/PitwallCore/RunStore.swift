@@ -98,8 +98,8 @@ public final class RunStore {
     }
 
     /// The real thing: Keychain token, live GitHub API.
-    public convenience init(settings: AppSettings) {
-        let tokens = TokenStore()
+    public convenience init(settings: AppSettings, keychainService: String = TokenStore.defaultService) {
+        let tokens = TokenStore(service: keychainService)
         self.init(settings: settings, tokens: tokens, api: GitHubClient(tokenProvider: { [tokens] in tokens.token() }))
     }
 
@@ -153,6 +153,9 @@ public final class RunStore {
         wakeRequested = true
         sleeper?.cancel()
     }
+
+    /// For tests: a poke is waiting to skip the next sleep.
+    var hasPendingPoke: Bool { wakeRequested }
 
     func waitForNextCycle() async {
         let delay = settings.pollPolicy.nextDelay(hasActiveRuns: !activeRuns.isEmpty, rateLimit: rateLimit, now: now())
@@ -372,7 +375,15 @@ public final class RunStore {
         let api = self.api
         async let workflows = api.workflows(for: repo)
         async let branches = api.branches(for: repo)
-        return try await DispatchOptions(workflows: workflows, branches: branches.map(\.name))
+        async let tags = api.tags(for: repo)
+        return try await DispatchOptions(workflows: workflows, branches: branches.map(\.name), tags: tags.map(\.name))
+    }
+
+    /// The inputs `workflow` declares at `ref`. Nil if it has no
+    /// `workflow_dispatch` trigger there; throws if the file can't be read.
+    public func dispatchSpec(repo: RepoRef, workflow: Workflow, ref: GitRef) async throws -> DispatchSpec? {
+        let source = try await api.workflowFile(repo: repo, path: workflow.path, ref: ref.name)
+        return try DispatchSpec.parse(workflowYAML: source)
     }
 
     public func dispatch(repo: RepoRef, workflow: Workflow, ref: String, inputs: [String: String]) async throws {

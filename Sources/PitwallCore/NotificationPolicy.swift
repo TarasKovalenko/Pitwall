@@ -22,6 +22,15 @@ public struct NotificationContent: Sendable, Equatable {
     public let threadID: String
     public let url: URL
     public let playsSound: Bool
+
+    public init(id: String, title: String, body: String, threadID: String, url: URL, playsSound: Bool) {
+        self.id = id
+        self.title = title
+        self.body = body
+        self.threadID = threadID
+        self.url = url
+        self.playsSound = playsSound
+    }
 }
 
 /// Decides whether a run event is worth a notification and what it says.

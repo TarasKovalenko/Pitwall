@@ -17,7 +17,9 @@ public final class TokenStore: TokenStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var cached: String??
 
-    public init(service: String = "dev.pitwall.Pitwall") {
+    public static let defaultService = "dev.pitwall.Pitwall"
+
+    public init(service: String = TokenStore.defaultService) {
         self.service = service
     }
 
@@ -78,8 +80,10 @@ public final class TokenStore: TokenStoring, @unchecked Sendable {
 public enum GitHubCLITokenImporter {
     static let candidatePaths = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]
 
-    public static var cliPath: String? {
-        candidatePaths.first { path in
+    public static var cliPath: String? { cliPath(in: candidatePaths) }
+
+    static func cliPath(in candidates: [String]) -> String? {
+        candidates.first { path in
             let fm = FileManager.default
             guard fm.isExecutableFile(atPath: path),
                   let attrs = try? fm.attributesOfItem(atPath: path),
@@ -91,7 +95,11 @@ public enum GitHubCLITokenImporter {
     }
 
     public static func importToken(timeout: TimeInterval = 5) async throws -> String {
-        guard let path = cliPath else {
+        try await importToken(timeout: timeout, candidates: candidatePaths)
+    }
+
+    static func importToken(timeout: TimeInterval, candidates: [String]) async throws -> String {
+        guard let path = cliPath(in: candidates) else {
             throw GitHubError.invalidInput("GitHub CLI not found. Install it with `brew install gh`.")
         }
         return try await Task.detached(priority: .userInitiated) {

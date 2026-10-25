@@ -72,10 +72,10 @@ struct NotchView: View {
             if let p = store.progress[run.id], p.totalJobs > 0 {
                 CompactRing(fraction: p.fraction, failing: p.hasFailure)
             } else {
-                Text(run.run.status == .queued ? "queued" : "…").font(.system(size: 10))
+                Text(RunText.pendingLabel(run.run)).font(.system(size: 10))
             }
         } else if let done = store.recentlyFinished.first?.run {
-            Text(done.conclusion == .success ? "passed" : (done.conclusion?.rawValue ?? "done"))
+            Text(RunText.finishedLabel(done))
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(done.conclusion == .success ? .green : .red)
         }
@@ -119,11 +119,17 @@ struct NotchView: View {
     }
 }
 
-private struct NotchRunRow: View {
+struct NotchRunRow: View {
     let tracked: TrackedRun
     let progress: RunProgress?
     @Environment(RunStore.self) private var store
-    @State private var hovering = false
+    @State private var hovering: Bool
+
+    init(tracked: TrackedRun, progress: RunProgress?, hovering: Bool = false) {
+        self.tracked = tracked
+        self.progress = progress
+        _hovering = State(initialValue: hovering)
+    }
     @State private var actionError: String?
 
     private var run: WorkflowRun { tracked.run }
@@ -177,10 +183,7 @@ private struct NotchRunRow: View {
         .onTapGesture { openOnGitHub(run.htmlURL) }
     }
 
-    private var detail: String {
-        guard let p = progress else { return run.status == .queued ? "Queued" : "Starting…" }
-        return p.currentActivity.map { "\(p.jobsText) · \($0)" } ?? p.jobsText
-    }
+    private var detail: String { RunText.notchDetail(run, progress: progress) }
 }
 
 /// Tiny progress ring for the collapsed wing.

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import PitwallCore
+import PitwallTestSupport
 
 @Suite struct ValidationTests {
     @Test(arguments: ["octocat/hello-world", "my-org/repo.name", "a/b", "Some_Org1/x_y-z.js"])

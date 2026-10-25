@@ -13,8 +13,12 @@ public final class URLSessionTransport: HTTPTransport {
     private let session: URLSession
     private let redirectGuard = SameHostRedirectGuard()
 
-    public init() {
-        let config = URLSessionConfiguration.ephemeral
+    public convenience init() {
+        self.init(configuration: .ephemeral)
+    }
+
+    /// Tests pass a configuration with a stub `URLProtocol`.
+    init(configuration config: URLSessionConfiguration) {
         config.httpCookieStorage = nil
         config.httpShouldSetCookies = false
         config.urlCache = nil
@@ -34,7 +38,7 @@ public final class URLSessionTransport: HTTPTransport {
         } catch let error as GitHubError {
             throw error
         } catch {
-            throw GitHubError.transport((error as? URLError)?.code.description ?? "request failed")
+            throw GitHubError.transport((error as? URLError)?.code.shortDescription ?? "request failed")
         }
     }
 }
@@ -53,8 +57,8 @@ final class SameHostRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
     }
 }
 
-private extension URLError.Code {
-    var description: String {
+extension URLError.Code {
+    var shortDescription: String {
         switch self {
         case .notConnectedToInternet: "offline"
         case .timedOut: "timed out"

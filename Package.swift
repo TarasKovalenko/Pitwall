@@ -13,6 +13,9 @@ let package = Package(
     targets: [
         .target(name: "PitwallCore"),
         .executableTarget(name: "PitwallApp", dependencies: ["PitwallCore"], path: "Sources/Pitwall"),
-        .testTarget(name: "PitwallCoreTests", dependencies: ["PitwallCore"]),
+        // Fakes shared by both test targets: in-memory GitHub, scripted transport, sleepers.
+        .target(name: "PitwallTestSupport", dependencies: ["PitwallCore"], path: "Tests/Support"),
+        .testTarget(name: "PitwallCoreTests", dependencies: ["PitwallCore", "PitwallTestSupport"]),
+        .testTarget(name: "PitwallAppTests", dependencies: ["PitwallApp", "PitwallTestSupport"]),
     ]
 )
