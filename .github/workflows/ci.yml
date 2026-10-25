@@ -19,10 +19,15 @@ jobs:
 
       - name: Coverage
         run: |
-          BIN=$(find .build -path "*Debug/PitwallAppTests.xctest/Contents/MacOS/PitwallAppTests" | head -1)
-          xcrun llvm-cov report "$BIN" -instr-profile=.build/debug/codecov/default.profdata \
+          set -o pipefail
+          # The test bundle's path depends on the SwiftPM build system in use.
+          BINS=$(find .build -type f -path "*ebug*/*.xctest/Contents/MacOS/*")
+          test -n "$BINS" || { echo "No test binaries found"; exit 1; }
+          FIRST=$(echo "$BINS" | head -1)
+          OTHERS=$(echo "$BINS" | tail -n +2 | sed 's/^/-object /')
+          xcrun llvm-cov report "$FIRST" $OTHERS -instr-profile=.build/debug/codecov/default.profdata \
             -ignore-filename-regex='Tests/|DerivedSources' | tee coverage.txt
-          tail -1 coverage.txt >> "$GITHUB_STEP_SUMMARY"
+          echo "Line coverage: $(tail -1 coverage.txt | awk '{print $(NF-3)}')" >> "$GITHUB_STEP_SUMMARY"
 
       # Some bugs only show up with optimisations on (see #3).
       - name: Test (release)
