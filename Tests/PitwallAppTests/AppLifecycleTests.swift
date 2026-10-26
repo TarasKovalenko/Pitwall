@@ -116,8 +116,13 @@ private let token = "ghp_" + String(repeating: "f", count: 36)
         let shown = await eventually { notch.isShowing }
         #expect(shown)
 
+        // Hovering the notch shows the wings first, then opens the list after a moment.
         notch.mouseMoved(to: NSPoint(x: geometry.collapsedRect.midX, y: geometry.collapsedRect.midY))
-        #expect(notch.isExpanded)
+        #expect(notch.isPeeking)
+        #expect(!notch.isExpanded)
+        let expanded = await eventually { notch.isExpanded }
+        #expect(expanded)
+        #expect(!notch.isPeeking)
         // Moving around inside keeps it open.
         notch.mouseMoved(to: NSPoint(x: geometry.collapsedRect.midX, y: geometry.screenFrame.maxY - 20))
         #expect(notch.isExpanded)
@@ -130,6 +135,25 @@ private let token = "ghp_" + String(repeating: "f", count: 36)
         let collapsed = await eventually { !notch.isExpanded }
         #expect(collapsed)
         #expect(notch.isShowing, "always-visible keeps it up")
+    }
+
+    @Test func leavingWhilePeekingCollapsesWithoutExpanding() async {
+        let (store, settings) = makeStore()
+        settings.notchAlwaysVisible = true
+        let notch = NotchController(store: store, settings: settings, geometry: { geometry })
+        await store.refresh()
+        let shown = await eventually { notch.isShowing }
+        #expect(shown)
+
+        notch.mouseMoved(to: NSPoint(x: geometry.collapsedRect.midX, y: geometry.collapsedRect.midY))
+        #expect(notch.isPeeking)
+        // The wings are wider than the notch, so moving onto one keeps it peeking.
+        notch.mouseMoved(to: NSPoint(x: geometry.peekRect.minX + 10, y: geometry.peekRect.midY))
+        #expect(notch.isPeeking)
+        notch.mouseMoved(to: NSPoint(x: geometry.screenFrame.minX + 5, y: geometry.screenFrame.minY + 5))
+        let collapsed = await eventually { !notch.isPeeking }
+        #expect(collapsed)
+        #expect(!notch.isExpanded)
     }
 
     @Test func noScreenMeansNoPanel() async {
