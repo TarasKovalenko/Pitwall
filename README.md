@@ -1,10 +1,25 @@
-# Pitwall
+<p align="center">
+  <img src="Resources/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="128" height="128" alt="Pitwall icon">
+</p>
 
-GitHub Actions in your Mac's notch.
+<h1 align="center">Pitwall</h1>
+
+<p align="center">GitHub Actions in your Mac's notch.</p>
 
 Pitwall sits in the menu bar next to the clock. Pick the repositories you care about and it shows their latest workflow runs. When something is running, the notch grows two small wings: which repo, and how many jobs are done. Hover over it and you get the live list, with the current job and step for each run. When a run finishes you get a notification, and clicking it opens the run on GitHub.
 
+<p align="center">
+  <img src="docs/screenshots/notch-wings.png" width="500" alt="The notch with wings: a running build in acme/api and a count of two runs">
+</p>
+<p align="center">
+  <img src="docs/screenshots/notch-expanded.png" width="500" alt="The expanded notch listing two running builds with progress, current job and step">
+</p>
+
 You can also start workflows from the menu, re-run failed jobs, and cancel runs without opening a browser. Starting a workflow (`workflow_dispatch`) lets you search branches and tags, and shows the inputs declared in the workflow file as proper fields: text, number, toggles for booleans, a picker for choices, with their defaults.
+
+<p align="center">
+  <img src="docs/screenshots/menu.png" width="380" alt="The menu bar dropdown with acme/web and acme/api runs">
+</p>
 
 ## Requirements
 
@@ -43,7 +58,10 @@ scripts/build-app.sh          # builds build/Pitwall.app (ad-hoc signed)
 open build/Pitwall.app
 swift test                    # runs both test suites
 swift test --enable-code-coverage   # same, with coverage
+PITWALL_SCREENSHOTS=docs/screenshots swift test --filter Screenshots   # redraws the README screenshots
 ```
+
+The screenshots are rendered from sample data (`Tests/PitwallAppTests/Screenshots.swift`), so they don't show any real repos.
 
 Then open Settings from the menu bar icon:
 
@@ -95,6 +113,7 @@ GLOSSARY.md              names used in the code (auth state, run action, poke, â
 scripts/build-app.sh     builds and signs the .app bundle
 scripts/install.sh       installs the latest release (used by the curl one-liner)
 .github/workflows/       CI on every PR and push to main; release on v* tags
+docs/screenshots/        README images, rendered by the Screenshots test
 scripts/make-icon.sh     redraws the app icon (scripts/make-icon.swift) into the asset catalog and .icns
 ```
 
