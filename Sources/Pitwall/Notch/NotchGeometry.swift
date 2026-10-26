@@ -11,7 +11,7 @@ struct NotchGeometry: Equatable {
     static let expandedWidth: CGFloat = 460
     static let maxExpandedHeight: CGFloat = 340
 
-    /// Size of the black shape when collapsed: exactly the notch, so it
+    /// Size of the black shape when collapsed and idle: exactly the notch, so it
     /// disappears into it. Without a notch, the pill always shows its wings.
     var collapsedSize: CGSize { hasNotch ? notchSize : peekSize }
 

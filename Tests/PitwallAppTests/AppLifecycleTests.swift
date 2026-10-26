@@ -156,6 +156,22 @@ private let token = "ghp_" + String(repeating: "f", count: 36)
         #expect(!notch.isExpanded)
     }
 
+    @Test func activeRunsKeepTheWingsOutAndHoverOpensTheList() async {
+        let (store, settings) = makeStore()
+        let notch = NotchController(store: store, settings: settings, geometry: { geometry })
+        #expect(!NotchController.restsWithWings(geometry, store: store))
+        await api.set(runs: [makeRun(id: 1, status: "in_progress")], for: repo)
+        await store.refresh()
+        let shown = await eventually { notch.isShowing }
+        #expect(shown)
+        #expect(NotchController.restsWithWings(geometry, store: store))
+
+        // Hovering a wing (outside the notch itself) opens the list straight away.
+        notch.mouseMoved(to: NSPoint(x: geometry.peekRect.minX + 10, y: geometry.peekRect.midY))
+        #expect(notch.isExpanded)
+        #expect(!notch.isPeeking)
+    }
+
     @Test func noScreenMeansNoPanel() async {
         let (store, settings) = makeStore()
         settings.notchAlwaysVisible = true
