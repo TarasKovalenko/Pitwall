@@ -183,6 +183,9 @@ final class Rendered<V: View> {
                                           rightArea: NSRect(x: 0, y: 0, width: 660, height: 38))
         let model = NotchModel(geometry: geometry)
         let r = Rendered(NotchView(model: model).environment(store), size: geometry.panelFrame.size)
+        model.isPeeking = true
+        await r.settle()
+        model.isPeeking = false
         model.isExpanded = true
         await r.settle()
         #expect(model.expandedHeight > 0)

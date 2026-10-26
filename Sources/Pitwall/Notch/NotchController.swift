@@ -6,7 +6,11 @@ import SwiftUI
 @Observable
 final class NotchModel {
     var isExpanded = false
+    /// Showing the wings beside the notch, before the full list opens.
+    var isPeeking = false
     var geometry: NotchGeometry
+    /// Called when the wings are clicked while peeking.
+    var onPeekTap: () -> Void = {}
     /// Measured height of the expanded content, for hover hit-testing.
     var expandedHeight: CGFloat = 120
 
@@ -24,6 +28,7 @@ final class NotchController {
     private var model: NotchModel?
     private var monitors: [Any] = []
     private var collapseWork: Task<Void, Never>?
+    private var expandWork: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
     private let geometryProvider: @MainActor () -> NotchGeometry?
 
@@ -75,7 +80,7 @@ final class NotchController {
 
     private func hide() {
         // Don't yank it away while the user is reading it.
-        guard model?.isExpanded != true else { return }
+        guard model?.isExpanded != true, model?.isPeeking != true else { return }
         panel?.orderOut(nil)
         removeMonitors()
     }
@@ -83,11 +88,13 @@ final class NotchController {
     /// For tests: whether the panel is on screen, and expanded.
     var isShowing: Bool { panel?.isVisible == true }
     var isExpanded: Bool { model?.isExpanded == true }
+    var isPeeking: Bool { model?.isPeeking == true }
     var geometry: NotchGeometry? { model?.geometry }
 
     private func makePanel() {
         guard let geometry = geometryProvider() else { return }
         let model = NotchModel(geometry: geometry)
+        model.onPeekTap = { [weak self] in self?.setExpanded(true) }
         let panel = NotchPanel(contentRect: geometry.panelFrame)
         let root = NotchView(model: model).environment(store)
         let host = NSHostingView(rootView: root)
@@ -129,12 +136,15 @@ final class NotchController {
     func mouseMoved(to point: NSPoint) {
         guard let model, let panel else { return }
         let g = model.geometry
-        if model.isExpanded {
-            let inside = g.expandedRect(height: model.expandedHeight).insetBy(dx: -8, dy: -8).contains(point)
-            if inside {
+        if model.isExpanded || model.isPeeking {
+            let area = model.isExpanded ? g.expandedRect(height: model.expandedHeight) : g.peekRect
+            if area.insetBy(dx: -8, dy: -8).contains(point) {
                 collapseWork?.cancel()
                 collapseWork = nil
+                if model.isPeeking, expandWork == nil { startExpandDwell() }
             } else if collapseWork == nil {
+                expandWork?.cancel()
+                expandWork = nil
                 // Small grace period so a slightly sloppy mouse doesn't snap it shut.
                 collapseWork = Task { [weak self] in
                     try? await Task.sleep(for: .milliseconds(250))
@@ -143,15 +153,36 @@ final class NotchController {
                 }
             }
         } else if g.collapsedRect.contains(point), panel.isVisible {
-            setExpanded(true)
+            // With a notch, show the wings first; staying a moment (or clicking) opens the list.
+            if g.hasNotch { setPeeking() } else { setExpanded(true) }
+        }
+    }
+
+    private func setPeeking() {
+        guard let model, let panel else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            model.isPeeking = true
+        }
+        panel.ignoresMouseEvents = false
+        startExpandDwell()
+    }
+
+    private func startExpandDwell() {
+        expandWork = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            self?.setExpanded(true)
         }
     }
 
     private func setExpanded(_ expanded: Bool) {
         collapseWork = nil
+        expandWork?.cancel()
+        expandWork = nil
         guard let model, let panel else { return }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
             model.isExpanded = expanded
+            model.isPeeking = false
         }
         panel.ignoresMouseEvents = !expanded
         if !expanded { update() }

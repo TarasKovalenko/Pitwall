@@ -7,12 +7,22 @@ struct NotchView: View {
 
     private var g: NotchGeometry { model.geometry }
 
+    private var width: CGFloat {
+        if model.isExpanded { return NotchGeometry.expandedWidth }
+        return model.isPeeking ? g.peekSize.width : g.collapsedSize.width
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .top) {
                 if model.isExpanded {
                     expanded
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                } else if model.isPeeking {
+                    collapsed
+                        .contentShape(Rectangle())
+                        .onTapGesture { model.onPeekTap() }
+                        .transition(.opacity)
                 } else if g.hasNotch {
                     Color.clear.frame(height: g.notchSize.height)
                 } else {
@@ -20,7 +30,7 @@ struct NotchView: View {
                         .transition(.opacity)
                 }
             }
-            .frame(width: model.isExpanded ? NotchGeometry.expandedWidth : g.collapsedSize.width)
+            .frame(width: width)
             .background(.black)
             .clipShape(UnevenRoundedRectangle(
                 bottomLeadingRadius: model.isExpanded ? 22 : 10,
@@ -33,7 +43,7 @@ struct NotchView: View {
         .preferredColorScheme(.dark)
     }
 
-    // MARK: Collapsed (no notch): two wings either side of the pill
+    // MARK: Wings: either side of the camera (peeking) or the pill (no notch)
 
     private var collapsed: some View {
         HStack(spacing: 0) {

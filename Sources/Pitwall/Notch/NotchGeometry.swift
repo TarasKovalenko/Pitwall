@@ -12,24 +12,28 @@ struct NotchGeometry: Equatable {
     static let maxExpandedHeight: CGFloat = 340
 
     /// Size of the black shape when collapsed: exactly the notch, so it
-    /// disappears into it. Without a notch, a pill with a wing on each side.
-    var collapsedSize: CGSize {
-        if hasNotch { return notchSize }
-        return CGSize(width: notchSize.width + Self.wingWidth * 2, height: notchSize.height)
+    /// disappears into it. Without a notch, the pill always shows its wings.
+    var collapsedSize: CGSize { hasNotch ? notchSize : peekSize }
+
+    /// The notch plus a wing on each side, shown on first hover.
+    var peekSize: CGSize {
+        CGSize(width: notchSize.width + Self.wingWidth * 2, height: notchSize.height)
     }
 
     /// The panel is sized once for the largest state; SwiftUI draws inside it.
     var panelFrame: NSRect {
-        let width = max(Self.expandedWidth, collapsedSize.width) + 40
+        let width = max(Self.expandedWidth, peekSize.width) + 40
         let height = Self.maxExpandedHeight + 20
         return NSRect(x: screenFrame.midX - width / 2, y: screenFrame.maxY - height, width: width, height: height)
     }
 
-    /// Screen-space rect of the collapsed shape, used for hover detection.
-    var collapsedRect: NSRect {
-        let size = collapsedSize
-        return NSRect(x: screenFrame.midX - size.width / 2, y: screenFrame.maxY - size.height - 4,
-                      width: size.width, height: size.height + 4)
+    /// Screen-space rects of the collapsed and peeking shapes, used for hover detection.
+    var collapsedRect: NSRect { topRect(collapsedSize) }
+    var peekRect: NSRect { topRect(peekSize) }
+
+    private func topRect(_ size: CGSize) -> NSRect {
+        NSRect(x: screenFrame.midX - size.width / 2, y: screenFrame.maxY - size.height - 4,
+               width: size.width, height: size.height + 4)
     }
 
     func expandedRect(height: CGFloat) -> NSRect {
