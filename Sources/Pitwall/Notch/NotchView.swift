@@ -13,6 +13,8 @@ struct NotchView: View {
                 if model.isExpanded {
                     expanded
                         .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                } else if g.hasNotch {
+                    Color.clear.frame(height: g.notchSize.height)
                 } else {
                     collapsed
                         .transition(.opacity)
@@ -31,7 +33,7 @@ struct NotchView: View {
         .preferredColorScheme(.dark)
     }
 
-    // MARK: Collapsed: two wings either side of the camera
+    // MARK: Collapsed (no notch): two wings either side of the pill
 
     private var collapsed: some View {
         HStack(spacing: 0) {

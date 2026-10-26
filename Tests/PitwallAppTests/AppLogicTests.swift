@@ -107,7 +107,7 @@ private let repo = RepoRef(fullName: "octo/app")!
                                    rightArea: NSRect(x: 852, y: 944, width: 660, height: 38))
         #expect(g.hasNotch)
         #expect(g.notchSize == CGSize(width: 192, height: 38))
-        #expect(g.collapsedSize == CGSize(width: 192 + 2 * NotchGeometry.wingWidth, height: 38))
+        #expect(g.collapsedSize == g.notchSize)
         #expect(g.collapsedRect.midX == frame.midX)
         #expect(g.collapsedRect.maxY == frame.maxY)
         #expect(g.panelFrame.width == NotchGeometry.expandedWidth + 40)
@@ -122,6 +122,7 @@ private let repo = RepoRef(fullName: "octo/app")!
                                    leftArea: nil, rightArea: nil)
         #expect(!g.hasNotch)
         #expect(g.notchSize == CGSize(width: 120, height: 25))
+        #expect(g.collapsedSize == CGSize(width: 120 + 2 * NotchGeometry.wingWidth, height: 25))
         let tiny = NotchGeometry.make(frame: frame, visibleFrame: frame, safeAreaTop: 0, leftArea: nil, rightArea: nil)
         #expect(tiny.notchSize.height == 24)
     }

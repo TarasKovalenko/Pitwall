@@ -11,9 +11,11 @@ struct NotchGeometry: Equatable {
     static let expandedWidth: CGFloat = 460
     static let maxExpandedHeight: CGFloat = 340
 
-    /// Size of the black shape when collapsed (notch plus a wing on each side).
+    /// Size of the black shape when collapsed: exactly the notch, so it
+    /// disappears into it. Without a notch, a pill with a wing on each side.
     var collapsedSize: CGSize {
-        CGSize(width: notchSize.width + Self.wingWidth * 2, height: notchSize.height)
+        if hasNotch { return notchSize }
+        return CGSize(width: notchSize.width + Self.wingWidth * 2, height: notchSize.height)
     }
 
     /// The panel is sized once for the largest state; SwiftUI draws inside it.
