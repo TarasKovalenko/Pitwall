@@ -9,8 +9,10 @@ struct NotchView: View {
 
     private var width: CGFloat {
         if model.isExpanded { return NotchGeometry.expandedWidth }
-        return model.isPeeking ? g.peekSize.width : g.collapsedSize.width
+        return model.isPeeking || restsWithWings ? g.peekSize.width : g.collapsedSize.width
     }
+
+    private var restsWithWings: Bool { NotchController.restsWithWings(g, store: store) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,11 +25,11 @@ struct NotchView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { model.onPeekTap() }
                         .transition(.opacity)
-                } else if g.hasNotch {
-                    Color.clear.frame(height: g.notchSize.height)
-                } else {
+                } else if restsWithWings {
                     collapsed
                         .transition(.opacity)
+                } else {
+                    Color.clear.frame(height: g.notchSize.height)
                 }
             }
             .frame(width: width)

@@ -50,7 +50,17 @@ final class NotchController {
     /// Visible when enabled, signed in, and there's something to show (or it's pinned).
     static func shouldShow(settings: AppSettings, store: RunStore) -> Bool {
         guard settings.notchEnabled, store.authState.user != nil else { return false }
-        return settings.notchAlwaysVisible || !store.activeRuns.isEmpty || !store.recentlyFinished.isEmpty
+        return settings.notchAlwaysVisible || hasActivity(store)
+    }
+
+    static func hasActivity(_ store: RunStore) -> Bool {
+        !store.activeRuns.isEmpty || !store.recentlyFinished.isEmpty
+    }
+
+    /// The wings stay out at rest while something is running or just finished,
+    /// and always on a pill. Only an idle notch shrinks to the notch itself.
+    static func restsWithWings(_ geometry: NotchGeometry, store: RunStore) -> Bool {
+        !geometry.hasNotch || hasActivity(store)
     }
 
     /// Re-runs `update` whenever anything `shouldShow` reads changes.
@@ -152,9 +162,14 @@ final class NotchController {
                     self?.setExpanded(false)
                 }
             }
-        } else if g.collapsedRect.contains(point), panel.isVisible {
-            // With a notch, show the wings first; staying a moment (or clicking) opens the list.
-            if g.hasNotch { setPeeking() } else { setExpanded(true) }
+        } else if panel.isVisible {
+            // Wings already out: open the list. Idle notch: show the wings first,
+            // and staying a moment (or clicking) opens the list.
+            if Self.restsWithWings(g, store: store) {
+                if g.peekRect.contains(point) { setExpanded(true) }
+            } else if g.collapsedRect.contains(point) {
+                setPeeking()
+            }
         }
     }
 
