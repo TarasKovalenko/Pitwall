@@ -12,7 +12,7 @@ jobs:
   test:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Test (debug)
         run: swift test --enable-code-coverage
