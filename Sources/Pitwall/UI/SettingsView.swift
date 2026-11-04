@@ -96,17 +96,14 @@ struct AccountSettings: View {
 
 struct RepositorySettings: View {
     let store: RunStore
-    @State private var available: [Repository] = []
     @State private var search = ""
     @State private var manual = ""
-    @State private var loading = false
-    @State private var error: String?
 
     private var settings: AppSettings { store.settings }
 
     private var filtered: [Repository] {
         let tracked = Set(settings.trackedRepos.map(\.fullName))
-        let base = available.filter { !tracked.contains($0.fullName) }
+        let base = (store.availableRepos ?? []).filter { !tracked.contains($0.fullName) }
         guard !search.isEmpty else { return base }
         return base.filter { $0.fullName.localizedCaseInsensitiveContains(search) }
     }
@@ -137,9 +134,20 @@ struct RepositorySettings: View {
                     .onSubmit(addManual)
                 Button("Add", action: addManual).disabled(RepoRef(fullName: manual) == nil)
             }
-            TextField("Search your repositories", text: $search)
-            if loading {
-                ProgressView().frame(maxWidth: .infinity)
+            HStack {
+                TextField("Search your repositories", text: $search)
+                if store.isLoadingAvailableRepos {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button {
+                        Task { await store.loadAvailableRepositories(force: true) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Reload your repositories")
+                    .disabled(!store.authState.hasUsableToken)
+                }
             }
             List(filtered) { repo in
                 HStack {
@@ -153,30 +161,20 @@ struct RepositorySettings: View {
                 }
             }
             .listStyle(.bordered)
-            if let error {
+            if let error = store.availableReposError {
                 Text(error).foregroundStyle(.red).font(.caption)
             }
         }
         .textFieldStyle(.roundedBorder)
         .padding()
-        .task { await load() }
+        // Re-runs when the account changes, not just on first appearance.
+        .task(id: store.authState.user?.login) { await store.loadAvailableRepositories() }
     }
 
     private func addManual() {
         guard let ref = RepoRef(fullName: manual) else { return }
         store.track(ref)
         manual = ""
-    }
-
-    private func load() async {
-        guard store.authState.hasUsableToken, available.isEmpty else { return }
-        loading = true
-        defer { loading = false }
-        do {
-            available = try await store.availableRepositories()
-        } catch {
-            self.error = error.localizedDescription
-        }
     }
 }
 

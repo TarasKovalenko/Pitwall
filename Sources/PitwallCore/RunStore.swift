@@ -52,6 +52,13 @@ public final class RunStore {
     public private(set) var progress: [Int: RunProgress] = [:]
     public private(set) var rateLimit: RateLimit?
     public private(set) var isRefreshing = false
+    /// Repositories the signed-in user can pick from in Settings. Nil until
+    /// loaded for the current account. Kept here rather than in the view so
+    /// it doesn't depend on SwiftUI re-running a `.task`: after a relaunch the
+    /// Settings window could open on the Repositories tab with nothing loaded.
+    public private(set) var availableRepos: [Repository]?
+    public private(set) var availableReposError: String?
+    public private(set) var isLoadingAvailableRepos = false
 
     public let settings: AppSettings
 
@@ -204,6 +211,9 @@ public final class RunStore {
         progress = [:]
         repos = repos.map { RepoState(ref: $0.ref) }
         finished.removeAll()
+        availableRepos = nil
+        availableReposError = nil
+        isLoadingAvailableRepos = false
         // A new account seeds fresh, so it doesn't notify about old runs.
         tracker = RunTransitionTracker()
     }
@@ -236,6 +246,24 @@ public final class RunStore {
     /// Repositories the signed-in user can pick from.
     public func availableRepositories() async throws -> [Repository] {
         try await api.repositories()
+    }
+
+    /// Fills `availableRepos` for the current account. Does nothing if it's
+    /// already loaded or loading, unless `force` (the refresh button).
+    public func loadAvailableRepositories(force: Bool = false) async {
+        guard hasToken, !isLoadingAvailableRepos, force || availableRepos == nil else { return }
+        let epoch = authEpoch
+        isLoadingAvailableRepos = true
+        defer { if epoch == authEpoch { isLoadingAvailableRepos = false } }
+        do {
+            let repos = try await api.repositories()
+            guard epoch == authEpoch else { return }
+            availableRepos = repos
+            availableReposError = nil
+        } catch {
+            guard epoch == authEpoch else { return }
+            availableReposError = error.localizedDescription
+        }
     }
 
     private func syncRepoList() {
@@ -286,6 +314,11 @@ public final class RunStore {
         syncRepoList()
         if user == nil {
             do { try await loadUser() } catch { return }
+        }
+        // Load the picker list in the background once per account, and retry
+        // on later polls if it failed (e.g. launched at login before the network was up).
+        if availableRepos == nil, !isLoadingAvailableRepos {
+            Task { [weak self] in await self?.loadAvailableRepositories() }
         }
 
         let results = await fetchRuns(repos.map(\.ref))

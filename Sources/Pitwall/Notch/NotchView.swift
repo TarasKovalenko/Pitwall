@@ -100,6 +100,27 @@ struct NotchView: View {
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 10) {
             Color.clear.frame(height: max(g.notchSize.height - 6, 8))
+            // Plain list while it fits; past the height cap it scrolls
+            // instead of cutting off the runs at the bottom.
+            ViewThatFits(in: .vertical) {
+                runList
+                ScrollView(.vertical) { runList }
+                    .scrollIndicators(.automatic)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 14)
+        .foregroundStyle(.white)
+        .frame(maxHeight: NotchGeometry.maxExpandedHeight, alignment: .top)
+        // Measured after the cap, so hover hit-testing matches what's on screen.
+        .background(GeometryReader { proxy in
+            Color.clear.onAppear { model.expandedHeight = proxy.size.height }
+                .onChange(of: proxy.size.height) { _, h in model.expandedHeight = h }
+        })
+    }
+
+    private var runList: some View {
+        VStack(alignment: .leading, spacing: 10) {
             let active = store.activeRuns
             let finished = store.recentlyFinished.filter { f in !active.contains { $0.id == f.id } }
             if active.isEmpty && finished.isEmpty {
@@ -108,7 +129,7 @@ struct NotchView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
             }
-            ForEach(active.prefix(4)) { run in
+            ForEach(active) { run in
                 NotchRunRow(tracked: run, progress: store.progress[run.id])
             }
             if !finished.isEmpty {
@@ -117,19 +138,7 @@ struct NotchView: View {
                     NotchRunRow(tracked: run, progress: nil)
                 }
             }
-            if active.count > 4 {
-                Text("+\(active.count - 4) more in the menu bar")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 14)
-        .foregroundStyle(.white)
-        .background(GeometryReader { proxy in
-            Color.clear.onAppear { model.expandedHeight = proxy.size.height }
-                .onChange(of: proxy.size.height) { _, h in model.expandedHeight = h }
-        })
-        .frame(maxHeight: NotchGeometry.maxExpandedHeight, alignment: .top)
     }
 }
 
