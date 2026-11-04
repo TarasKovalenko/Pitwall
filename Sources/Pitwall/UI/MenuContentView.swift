@@ -6,6 +6,12 @@ struct MenuContentView: View {
     @State private var expanded: Set<RepoRef> = []
     @State private var dispatchTarget: RepoRef?
     @State private var banner: String?
+    /// Height of the repo list's content, measured so the scroll view can be
+    /// given a real height (see `content`).
+    @State private var listHeight: CGFloat = 0
+
+    /// Room for the list once the header and footer take their share of 560pt.
+    static let maxListHeight: CGFloat = 470
 
     var body: some View {
         VStack(spacing: 0) {
@@ -64,8 +70,14 @@ struct MenuContentView: View {
         } else if store.repos.isEmpty {
             EmptyStateView(symbol: "tray", title: "No repositories yet", message: "Pick the ones to watch in Settings.")
         } else {
+            // The menu window sizes itself to the content's ideal height, and a
+            // bare ScrollView has almost none. After a relaunch the window came
+            // up as just the header and footer with the repos squeezed to
+            // nothing (signing out and in "fixed" it by growing the window
+            // first). So the scroll view gets the list's measured height,
+            // capped, and only scrolls past the cap.
             ScrollView {
-                LazyVStack(spacing: 0) {
+                VStack(spacing: 0) {
                     ForEach(store.repos) { repo in
                         RepoSection(
                             state: repo,
@@ -78,7 +90,14 @@ struct MenuContentView: View {
                         Divider().padding(.leading, 12)
                     }
                 }
+                .background(GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { listHeight = proxy.size.height }
+                        .onChange(of: proxy.size.height) { _, h in listHeight = h }
+                })
             }
+            .frame(height: min(listHeight, Self.maxListHeight))
+            .scrollBounceBehavior(.basedOnSize)
         }
     }
 

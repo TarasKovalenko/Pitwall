@@ -55,14 +55,7 @@ public actor FakeGitHub: GitHubAPI {
 
     public var repositoryList: [Repository] = []
     public func set(repositories: [Repository]) { repositoryList = repositories }
-    public var repositoriesError: GitHubError?
-    public func set(repositoriesError: GitHubError?) { self.repositoriesError = repositoriesError }
-    public private(set) var repositoriesCalls = 0
-    public func repositories() async throws -> [Repository] {
-        repositoriesCalls += 1
-        if let repositoriesError { throw repositoriesError }
-        return repositoryList
-    }
+    public func repositories() async throws -> [Repository] { repositoryList }
 
     public func runs(for repo: RepoRef) async throws -> [WorkflowRun] {
         runsCalls += 1

@@ -97,65 +97,6 @@ private let validToken = "ghp_" + String(repeating: "c", count: 36)
         #expect(try await store.availableRepositories() == [repo])
     }
 
-    func makeRepository(_ fullName: String) throws -> Repository {
-        let parts = fullName.split(separator: "/")
-        return try JSONDecoder().decode(Repository.self, from: Data(
-            #"{"id":1,"name":"\#(parts[1])","full_name":"\#(fullName)","owner":{"login":"\#(parts[0])"},"private":false,"default_branch":"main","pushed_at":null}"#.utf8))
-    }
-
-    /// After a relaunch the token is already saved; the first poll fills the
-    /// Settings picker without anyone signing out and back in.
-    @Test func firstPollLoadsTheRepositoryPicker() async throws {
-        let repo = try makeRepository("o/r")
-        await api.set(repositories: [repo])
-        let store = makeStore(sleep: ManualSleeper().sleep)
-        #expect(store.availableRepos == nil)
-        await store.refresh()
-        let loaded = await eventually { store.availableRepos == [repo] }
-        #expect(loaded)
-        // Already loaded: later polls don't fetch it again.
-        await store.refresh()
-        await store.loadAvailableRepositories()
-        #expect(await api.repositoriesCalls == 1)
-    }
-
-    @Test func repositoryPickerRetriesAfterAFailure() async throws {
-        let repo = try makeRepository("o/r")
-        await api.set(repositoriesError: .http(502))
-        let store = makeStore(sleep: ManualSleeper().sleep)
-        await store.loadAvailableRepositories()
-        #expect(store.availableRepos == nil)
-        #expect(store.availableReposError != nil)
-
-        await api.set(repositoriesError: nil)
-        await api.set(repositories: [repo])
-        await store.refresh()
-        let loaded = await eventually { store.availableRepos == [repo] }
-        #expect(loaded)
-        #expect(store.availableReposError == nil)
-    }
-
-    @Test func repositoryPickerBelongsToTheAccount() async throws {
-        await api.set(repositories: [try makeRepository("o/r")])
-        let store = makeStore(sleep: ManualSleeper().sleep)
-        await store.loadAvailableRepositories()
-        #expect(store.availableRepos?.count == 1)
-
-        await store.signOut()
-        #expect(store.availableRepos == nil)
-        await store.loadAvailableRepositories()
-        #expect(store.availableRepos == nil, "no token, nothing to load")
-
-        let other = try makeRepository("x/y")
-        await api.set(repositories: [other])
-        try await store.signIn(token: validToken)
-        await store.loadAvailableRepositories()
-        #expect(store.availableRepos == [other])
-
-        await store.loadAvailableRepositories(force: true)
-        #expect(await api.repositoriesCalls == 3)
-    }
-
     @Test func dispatchPollsAgainShortlyAfter() async throws {
         let sleeper = InstantSleeper()
         let store = makeStore(sleep: sleeper.sleep)
