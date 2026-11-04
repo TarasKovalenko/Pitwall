@@ -207,6 +207,8 @@ final class Rendered<V: View> {
         model.isExpanded = true
         let r = Rendered(NotchView(model: model).environment(store), size: model.geometry.panelFrame.size)
         await r.settle()
+        // Six runs don't fit: the list scrolls inside the cap instead of spilling past it.
+        #expect(model.expandedHeight > 0 && model.expandedHeight <= NotchGeometry.maxExpandedHeight)
         let empty = Rendered(NotchView(model: model).environment(makeStore()), size: model.geometry.panelFrame.size)
         await empty.settle()
         #expect(r.fittingHeight > 0 && empty.fittingHeight > 0)
